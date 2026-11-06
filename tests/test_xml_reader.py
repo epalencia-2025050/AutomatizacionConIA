@@ -1,49 +1,43 @@
-"""Tests del módulo de procesamiento XML."""
-from pathlib import Path
+"""Pruebas del lector de XML FEL (Fase 2)."""
+from tests.fixtures_fel import (XML_FEL_CERTIFICADO, XML_FEL_CON_UUID_GUIONES,
+                                XML_MALFORMADO, XML_NO_FEL, XML_SIN_UUID,
+                                UUID_ESPERADO, make_xml, NIT)
 
 from src.processing.xml_reader import XmlReader
-from src.processing.validator import Validator
-
-SAMPLE_XML = """<?xml version="1.0" encoding="UTF-8"?>
-<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
-    Version="4.0" Serie="A" Folio="123" Fecha="2024-01-15T10:00:00"
-    SubTotal="100.00" Moneda="MXN" Total="116.00">
-  <cfdi:Emisor Rfc="ABC010101AAA" Nombre="Empresa Emisora"/>
-  <cfdi:Receptor Rfc="XYZ" Nombre="Cliente"/>
-  <cfdi:Complemento>
-    <tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
-        UUID="a1b2c3d4-e5f6-4789-a012-b3c4d5e6f7a8"/>
-  </cfdi:Complemento>
-</cfdi:Comprobante>
-"""
+from src.processing.models import FacturaDTE
 
 
-def make_sample(tmp_path: Path) -> Path:
-    xml_file = tmp_path / "sample_test.xml"
-    xml_file.write_text(SAMPLE_XML, encoding="utf-8")
-    return xml_file
+def test_extrae_campos_clave(tmp_path):
+    data = XmlReader().parse(make_xml(tmp_path, XML_FEL_CERTIFICADO))
+    assert isinstance(data, FacturaDTE)
+    # UUID de 32 hex en el XML -> normalizado a la forma con guiones
+    assert data.uuid == UUID_ESPERADO
+    assert data.nit_emisor == NIT
+    assert data.tipo_documento == "FACT"
+    assert data.total == 2000.0
+    assert data.iva == 214.29
+    assert data.num_items == 1
+    assert data.moneda == "GTQ"
+    assert data.fecha_emision.startswith("2026-03-15")
+    assert data.fecha_certificacion.startswith("2026-03-15")
 
 
-def test_extract_fields(tmp_path):
-    reader = XmlReader()
-    data = reader.extract(make_sample(tmp_path))
-    assert data is not None
-    assert data["serie"] == "A"
-    assert data["folio"] == "123"
-    assert data["rfc_emisor"] == "ABC010101AAA"
-    assert data["uuid"] == "a1b2c3d4-e5f6-4789-a012-b3c4d5e6f7a8"
-    assert data["total"] == 116.0
+def test_normaliza_uuid_con_guiones(tmp_path):
+    data = XmlReader().parse(make_xml(tmp_path, XML_FEL_CON_UUID_GUIONES))
+    # mismo UUID con guiones -> mismo valor normalizado
+    assert data.uuid == UUID_ESPERADO
 
 
-def test_validate_ok(tmp_path):
-    reader = XmlReader()
-    validator = Validator({"validate_rfc": True})
-    data = reader.extract(make_sample(tmp_path))
-    assert validator.validate(data) is True
+def test_xml_sin_uuid_reporta_error(tmp_path):
+    data = XmlReader().parse(make_xml(tmp_path, XML_SIN_UUID))
+    assert isinstance(data, dict) and "error" in data
 
 
-def test_validate_invalid_total():
-    validator = Validator({"validate_rfc": False})
-    assert validator.validate({"uuid": "a1b2c3d4-e5f6-4789-a012-b3c4d5e6f7a8",
-                              "rfc_emisor": "ABC010101AAA",
-                              "total": 0.0, "fecha_emision": "x"}) is False
+def test_xml_malformado(tmp_path):
+    data = XmlReader().parse(make_xml(tmp_path, XML_MALFORMADO))
+    assert isinstance(data, dict) and "error" in data
+
+
+def test_xml_no_fel(tmp_path):
+    data = XmlReader().parse(make_xml(tmp_path, XML_NO_FEL))
+    assert isinstance(data, dict) and "GTDocumento" in data["error"]

@@ -1,49 +1,85 @@
-"""Validation of the extracted CFDI data."""
+"""Validación de un DTE extraído (Fase 2).
+
+Verifica:
+ - estructura completa (UUID, NIT, fecha, total),
+ - dígito verificador del NIT de Guatemala (módulo 11, factores 2..9),
+ - correspondencia XML <-> PDF en disco.
+"""
 import logging
-import os
 import re
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-RFC_PATTERN = re.compile(r"^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$", re.IGNORECASE)
-UUID_PATTERN = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
+UUID_RE = re.compile(r"^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$")
+
+TIPOS_DTE_VALIDOS = {"FACT", "FCAM", "FESP", "NCRE", "NDEB", "NABN", "RDON",
+                     "RECI", "FAAU", "FCAP", "FPEQ", "FDON"}
 
 
 class Validator:
-    """Verifica integridad básica de los datos extraídos del XML."""
+    """Validador de datos fiscales del DTE."""
 
-    def __init__(self, processing_config: dict | None = None):
-        config = processing_config or {}
-        self.validate_rfc = config.get("validate_rfc", True)
-        self.own_rfc = os.getenv("SAT_RFC", "")
+    def validar_nit(self, nit: str) -> bool:
+        """Valida el dígito verificador del NIT (módulo 11, factores 2..9).
 
-    def validate(self, data: dict) -> bool:
-        """Retorna True si los datos mínimos están completos."""
-        uuid = data.get("uuid", "")
-        if not uuid or not UUID_PATTERN.match(str(uuid)):
-            logger.warning("UUID inválido o ausente")
+        Ejemplos reales verificados: 5640773-4 y 98978802 (sin guión).
+        Los NIT legados con letras en el cuerpo no son validables: la
+        validación regresará False sólo por checksum (el processor decide).
+        """
+        nit = (nit or "").strip().upper().replace("-", "")
+        if len(nit) < 7:
             return False
+        cuerpo, verificador = nit[:-1], nit[-1]
+        esperado = 10 if verificador == "K" else \
+                   int(verificador) if verificador.isdigit() else -1
 
-        rfc = data.get("rfc_emisor", "")
-        if self.validate_rfc and not RFC_PATTERN.match(str(rfc)):
-            logger.warning("RFC emisor inválido: %r", rfc)
-            return False
+        suma, factores = 0, list(range(2, 10))
+        for i, d in enumerate(reversed(cuerpo)):
+            if not d.isdigit():
+                return False
+            suma += int(d) * factores[i % len(factores)]
+        resto = suma % 11
+        digito = 0 if resto == 0 else 11 - resto
+        return digito == esperado
 
-        if data.get("total", 0.0) <= 0:
-            logger.warning("Total inválido: %s", data.get("total"))
-            return False
+    # ------------------------------------------------------------------
+    def validate(self, data, validar_nit: bool = True,
+                 pdf_correspondente: Path | None = None) -> list[str]:
+        """Lista de problemas del DTE (vacía = válido).
 
-        if data.get("fecha_emision", "") == "":
-            logger.warning("Fecha de emisión ausente")
-            return False
+        data puede ser FacturaDTE o dict con 'error' (XML ilegible).
+        """
+        if isinstance(data, dict):
+            return [data["error"]] if data.get("error") else []
 
-        return True
+        problemas: list[str] = []
 
-    def is_from_expected_issuer(self, data: dict, rfc: str | None = None) -> bool:
-        """Filtra facturas de un emisor específico (útil cuando se buscan por RFC)."""
-        target = rfc or self.own_rfc
-        if not target:
-            return True
-        return str(data.get("rfc_emisor", "")).upper() == target.upper()
+        if not data.nit_emisor:
+            problemas.append("NIT emisor vacío")
+        elif validar_nit and not self.validar_nit(data.nit_emisor):
+            problemas.append(f"NIT emisor inválido (checksum): {data.nit_emisor}")
+
+        if not UUID_RE.match(data.uuid or ""):
+            problemas.append(f"UUID con formato inválido: {data.uuid}")
+
+        if not data.fecha_emision:
+            problemas.append("Sin fecha de emisión")
+        try:
+            from datetime import date
+            date.fromisoformat(data.fecha_emision[:10])
+        except ValueError:
+            problemas.append(f"Fecha no interpretable: {data.fecha_emision}")
+
+        if data.total is None or data.total < 0:
+            problemas.append(f"Total negativo o ausente: {data.total}")
+        if data.tipo_documento and data.tipo_documento.upper() not in TIPOS_DTE_VALIDOS:
+            problemas.append(f"Tipo de DTE no reconocido: {data.tipo_documento}")
+
+        if pdf_correspondente is not None:
+            if not pdf_correspondente.exists():
+                problemas.append(f"PDF correspondiente ausente: {pdf_correspondente.name}")
+            elif not str(pdf_correspondente).lower().endswith(".pdf"):
+                problemas.append("El PDF correspondiente no tiene extensión .pdf")
+
+        return problemas

@@ -1,46 +1,44 @@
 # ==========================================================
-# Selectores del portal del SAT
-# NOTA: el SAT cambia con frecuencia su portal; revisar
-# manualmente si algún selector falla.
+# Selectores de SAT Guatemala - Agencia Virtual
+#
+# login.*  ya está VERIFICADO contra el HTML real
+#          (https://farm3.sat.gob.gt/menu/login.jsf)
+# consulta.* es la pantalla "Consultar DTE" que solo es
+#          visible tras iniciar sesión. Selectores marcados
+#          "POR CONFIRMAR" son valores genéricos de respaldo;
+#          usar tools/discover_dte_selectors.py para aclararlos.
 # ==========================================================
 
-sat:
-  login:
-    rfc_input: 'input[name="rfc"]'
-    password_input: 'input[name="password"]'
-    submit_button: 'button[type="submit"]'
-    alert_error: '.alert-danger, .swal2-container'
-  menu:
-    received_tab: 'a:has-text("Recibidos")'
-    issued_tab: 'a:has-text("Emitidos")'
-  search:
-    date_from_input: 'input#dateFrom, input[name="dateFrom"]'
-    date_to_input: 'input#dateTo, input[name="dateTo"]'
-    rfc_emitter_input: 'input#emitterRrfc, input[name="emitterRrfc"]'
-    search_button: 'button:has-text("Buscar CFDI"), input[type="submit"]'
-    results_table: 'table'
-    result_row: 'table tbody tr'
-    download_xml_link: 'a[onclick*="RecUpdXML"]'
-    download_pdf_link: 'a[onclick*="RecAcusePDF"]'
-    no_results_message: 'text="No se encontraron resultados"'
+login:
+  # --- VERIFICADO ---
+  username_input: 'input[name="formContent:username"]'
+  password_input: 'input[name="formContent:password"]'
+  submit_button: 'button[name="formContent:cmdbtnIngresar"]'
+  # Segundo factor (Microsoft Authenticator, 6 dígitos)
+  mfa_input: 'input[name="formContent:inMaskVerifyCode"]'
+  mfa_submit: 'button[name="formContent:cmdbtnVerifyCode"]'
+  # Señales de estado
+  login_card: '#loginFormulario'                 # visible => aún sin sesión
+  mfa_card: '#loginEncabezadoAuth'               # visible => pide código 2FA
+  error_selector: '#loginMsgError span.error'
 
-download:
-  pdf_acuse_window: 'iframe, embed[type="application/pdf"]'
-  close_button: 'button:has-text("Cerrar"), a:has-text("Cerrar")'
-
-# ==========================================================
-# Selectores del sistema destino (ajustar a la plataforma real)
-# ==========================================================
-destination:
-  login:
-    user_input: 'input[name="username"]'
-    password_input: 'input[name="password"]'
-    submit_button: 'button[type="submit"]'
-  invoice_form:
-    new_invoice_button: 'a:has-text("Nueva factura")'
-    rfc_input: 'input[name="rfc"]'
-    uuid_input: 'input[name="uuid"]'
-    total_input: 'input[name="total"]'
-    upload_input: 'input[type="file"]'
-    save_button: 'button:has-text("Guardar")'
-    success_toast: '.toast-success, .alert-success'
+consulta:
+  # --- POR CONFIRMAR (pantalla interna tras login) ---
+  # Navegación por menú desde la página inicial de Agencia Virtual.
+  # Corregir con tools/discover_dte_selectors.py
+  menu_path:
+    - 'button:has-text("Menú")'
+    - 'text=Servicios Tributarios'
+    - 'text=Factura Electrónica en Línea (FEL)'
+    - 'text=Consultar DTE'
+  filtros:
+    # fallbacks genéricos hasta confirmar los IDs reales
+    fecha_desde: 'input[id*="fecha" i]'
+    fecha_hasta: 'input[id*="fecha" i]'
+    tipo_operacion: 'select[id*="operacion" i], select[id*="registro" i]'
+    buscar_btn: 'button:has-text("Buscar"), span:has-text("Buscar"), a:has-text("Buscar")'
+  resultados:
+    tabla: 'table'
+    filas: 'table tbody tr'
+    # Enlaces/botones de descarga se detectan por texto (XML / PDF / Excel)
+    # dentro de cada fila; no requiere selector exacto.

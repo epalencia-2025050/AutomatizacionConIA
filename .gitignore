@@ -17,11 +17,11 @@ data/errors/*
 !data/processed/.gitkeep
 !data/errors/.gitkeep
 
-# Credenciales y sesiones del navegador
+# Credenciales y sesiones del navegador (2FA incluido)
 credentials/
+storage/
 *.storage_state.json
-*.pfx
-*.key
+tools/dte_dom_snapshot.json
 
 # Logs
 logs/*.log

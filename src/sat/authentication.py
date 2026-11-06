@@ -1,71 +1,124 @@
-"""Autenticación en el portal del SAT."""
+"""Autenticación en la Agencia Virtual de SAT Guatemala.
+
+Flujo real (verificado en el HTML del portal):
+ 1. Formulario: NIT/CUI + contraseña  -> botón "Iniciar Sesión"
+ 2. Segundo factor: código de 6 dígitos de Microsoft Authenticator
+    (requiere intervención humana; el program NO lo automatiza)
+ 3. La sesión se guarda en storage/sat_av_state.json para reusarla.
+"""
 import logging
 import os
 import time
+from datetime import datetime
 
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
+from playwright.sync_api import Page
 
 logger = logging.getLogger(__name__)
 
 
 class SatAuthentication:
-    """Maneja el login en https://portalcfdi.facturaelectronica.sat.gob.mx"""
+    def __init__(self, settings: dict, selectors: dict, browser_manager):
+        self.sat = settings["sat"]
+        self.sel = selectors["login"]
+        self.run_cfg = settings["run"]
+        self.browser = browser_manager
+        self.page = None
 
-    def __init__(self, settings: dict, selectors: dict):
-        self.settings = settings
-        self.selectors = selectors
-        self.sat_settings = settings["sat"]
-        self.page: Page = Page  # se asigna en login()
-
-    def login(self, page: Page) -> Page:
-        """Inicia sesión con RFC y contraseña desde variables de entorno."""
-        self.page = page
-        rfc = os.getenv("SAT_RFC", "")
+    # ------------------------------------------------------------------
+    def login(self) -> Page:
+        """Inicia sesión. Devuelve una Page autenticada."""
+        nit = os.getenv("SAT_NIT", "").strip()
         password = os.getenv("SAT_PASSWORD", "")
-        if not rfc or not password:
-            raise ValueError("SAT_RFC y SAT_PASSWORD deben estar definidos en .env")
+        if not nit or not password:
+            raise ValueError("SAT_NIT y SAT_PASSWORD deben estar definidos en .env")
 
-        timeout = (self.sat_settings["timeouts"].get("login", 30)) * 1000
-        logger.info("Abriendo portal del SAT...")
-        page.goto(self.sat_settings["portal_url"], timeout=timeout, wait_until="domcontentloaded")
+        url_login = "https://farm3.sat.gob.gt/menu/login.jsf"
+        timeout = self.sat["timeouts"]["login_ms"]
 
-        if self._session_valid():
-            logger.info("Sesión existente válida, se omite login")
+        self.page = self.browser.new_page() if (self.page is None) else self.page
+        logger.info("Abriendo Agencia Virtual: %s", url_login)
+        self.page.goto(url_login, timeout=timeout, wait_until="domcontentloaded")
+
+        if self._already_logged_in():
+            logger.info("Sesión activa vigente; se omite el login")
             return self.page
 
-        try:
-            self._fill_login_form(rfc, password, timeout)
-            self._verify_login(timeout)
-        except PlaywrightTimeout:
-            logger.error("Timeout en el login del SAT")
-            screenshot = f"logs/sat_login_error_{int(time.time())}.png"
-            page.screenshot(path=screenshot)
-            logger.info("Captura de pantalla de error: %s", screenshot)
-            raise
+        self._fill_credentials(nit, password, timeout)
+        outcome = self._wait_login_outcome(timeout)
 
-        logger.info("Autenticación en el SAT exitosa")
+        if outcome == "mfa":
+            self._wait_for_human_mfa()
+            # tras el 2FA se debe completar el redirect del menú principal
+        elif outcome == "cred_error":
+            detail = self._error_text()
+            self.page.screenshot(path=f"logs/login_error_{int(time.time())}.png")
+            raise PermissionError(f"Login rechazado por la SAT: {detail}")
+
+        if not self._already_logged_in():
+            raise RuntimeError("El login no finalizó en estado autenticado")
+
+        self.browser.save_state()
+        logger.info("Autenticación exitosa en Agencia Virtual")
         return self.page
 
-    def _session_valid(self) -> bool:
-        """Detecta si el navegador conserva la sesión activa."""
-        return "ListaRecibidos" in self.page.url or self.page.query_selector(
-            self.selectors["menu"]["received_tab"]
-        )
+    # ------------------------------------------------------------------
+    def _already_logged_in(self) -> bool:
+        """True si NO se muestra el formulario de login (ya autenticado)."""
+        try:
+            visible = self.page.locator(self.sel["login_card"]).first.is_visible()
+            return not visible
+        except Exception:
+            return True   # formulario ausente => probablemente logueado
 
-    def _fill_login_form(self, rfc: str, password: str, timeout: int) -> None:
-        s = self.selectors["login"]
-        self.page.fill(s["rfc_input"], rfc, timeout=timeout)
-        self.page.fill(s["password_input"], password, timeout=timeout)
-        self.page.click(s["submit_button"], timeout=timeout)
-        # Esperar que el portal regrese después de validar
-        self.page.wait_for_load_state("domcontentloaded", timeout=timeout)
+    def _fill_credentials(self, nit: str, password: str, timeout: int) -> None:
+        self.page.fill(self.sel["username_input"], nit, timeout=timeout)
+        self.page.fill(self.sel["password_input"], password, timeout=timeout)
+        logger.info("Enviando credenciales...")
+        self.page.click(self.sel["submit_button"], timeout=timeout)
 
-    def _verify_login(self, timeout: int) -> None:
-        s = self.selectors["login"]
-        if self.page.query_selector(s["alert_error"]):
-            error_text = self.page.inner_text(s["alert_error"]).strip()
-            raise PermissionError(f"Login del SAT rechazado: {error_text}")
-        # Confirmar llegada a la bandeja de facturas recibidas
-        self.page.wait_for_selector(
-            self.selectors["menu"]["received_tab"], timeout=timeout
-        )
+    def _wait_login_outcome(self, timeout: int) -> str:
+        """Espera la reacción del portal: error | mfa | success."""
+        deadline = time.time() + timeout / 1000 + 10
+        while time.time() < deadline:
+            url = self.page.url
+            if "login.jsf" not in url:
+                return "success"
+            try:
+                if self.page.locator(self.sel["error_selector"]).first.is_visible():
+                    return "cred_error"
+                if self.page.locator(self.sel["mfa_input"]).first.is_visible():
+                    return "mfa"
+            except Exception:
+                pass
+            time.sleep(0.5)
+        return "unknown"
+
+    def _wait_for_human_mfa(self) -> None:
+        """Intervención humana: el usuario escribe el código 2FA en el navegador."""
+        seconds = int(self.sat["timeouts"]["mfa_s"])
+        deadline = time.time() + seconds
+        print("\n" + "=" * 60)
+        print("  INTERVENCIÓN REQUERIDA: revisa tu app Microsoft Authenticator")
+        print("  y teclea el código de 6 dígitos en la ventana del navegador")
+        print(f"  (esperando hasta {seconds} segundos...)")
+        print("=" * 60 + "\n")
+        logger.info("Esperando código MFA humano (máx %s s)", seconds)
+        while time.time() < deadline:
+            url = self.page.url
+            mfa_visible = False
+            try:
+                mfa_visible = self.page.locator(self.sel["mfa_input"]).first.is_visible()
+            except Exception:
+                pass
+            if "login.jsf" not in url or not mfa_visible:
+                logger.info("2FA completado; continuando")
+                return
+            time.sleep(1.0)
+        self.page.screenshot(path=f"logs/mfa_timeout_{int(time.time())}.png")
+        raise TimeoutError("El código de 2FA no se ingresó a tiempo")
+
+    def _error_text(self) -> str:
+        try:
+            return self.page.locator(self.sel["error_selector"]).first.inner_text().strip()
+        except Exception:
+            return "(mensaje no legible)"

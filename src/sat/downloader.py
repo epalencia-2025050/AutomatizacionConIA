@@ -1,84 +1,120 @@
-"""Descarga de XML y PDF desde el portal del SAT."""
+"""Descarga de XML y PDF de cada DTE listado en la consulta.
+
+Estrategias, en orden:
+ 1. Clic en el enlace -> Playwright captura la descarga (expect_download).
+ 2. Si el portal abre el PDF en ventana nueva, la captura la descarga
+    vía HTTP con las cookies activas (fallback del BrowserManager).
+El archivo se renombra con el UUID del DTE cuando se puede detectar.
+"""
 import logging
 import re
 import time
 from pathlib import Path
 
-from playwright.sync_api import Download, Page
+from playwright.sync_api import Download, ElementHandle
+from playwright.sync_api import TimeoutError as PWTimeout
+
+from src.sat.invoice_search import UUID_RE
 
 logger = logging.getLogger(__name__)
 
+EXT_SANEADO = re.compile(r"[^A-Za-z0-9._-]")
+
 
 class Downloader:
-    """Descarga cada CFDI listado en la búsqueda previa."""
-
-    def __init__(self, page: Page, selectors: dict, download_dir: Path,
-                 timeout_seconds: int = 90):
+    def __init__(self, page, settings: dict, downloads_dir: Path):
         self.page = page
-        self.selectors = selectors
-        self.download_dir = Path(download_dir)
-        self.download_dir.mkdir(parents=True, exist_ok=True)
-        self.timeout_ms = timeout_seconds * 1000
-        self.downloaded: dict[str, list[Path]] = {}
-
-    def download_all(self, results: list[dict]) -> list[Path]:
-        """Itera todas las filas descargando XML; agrega PDF cuando exista."""
-        all_files: list[Path] = []
-        for result in results:
-            row = result.get("element")
-            try:
-                files = self._download_row(row, result)
-                all_files.extend(files)
-            except Exception as exc:
-                logger.error("Error descargando fila %s: %s", result.get("row_index"), exc)
-        return all_files
+        self.dir = Path(downloads_dir)
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.timeout_ms = int(settings["sat"]["timeouts"]["download_ms"])
+        self.downloaded: dict[str, dict[str, Path]] = {}
 
     # ------------------------------------------------------------------
-    def _download_row(self, row, result: dict) -> list[Path]:
-        files: list[Path] = []
-        xml_path = self._download_link(row, self.selectors["sat"]["search"],
-                                       "download_xml_link", "xml")
-        if xml_path:
-            files.append(xml_path)
-            pdf_path = self._download_link(row, self.selectors["sat"]["search"],
-                                           "download_pdf_link", "pdf")
-            if pdf_path:
-                files.append(pdf_path)
-        result.pop("element", None)
-        return files
+    def download_all(self, results: list[dict]) -> list[Path]:
+        archivos: list[Path] = []
+        for i, item in enumerate(results, start=1):
+            uuid = item.get("uuid") or f"DTE_{i:03d}"
+            try:
+                paths = self._download_pair(uuid, item)
+                archivos.extend(paths)
+                self.downloaded[uuid] = paths
+            except Exception as exc:
+                logger.error("Fallo descarga DTE %s: %s", uuid, exc)
+        return archivos
 
-    def _download_link(self, row, selectors: dict, link_key: str, ext: str):
-        link = row.query_selector(selectors[link_key])
-        if link is None:
-            logger.debug("Sin enlace de descarga %s en la fila", ext.upper())
+    def _download_pair(self, uuid: str, item: dict) -> list[Path]:
+        paths: list[Path] = []
+        xml_path = self._download_link(uuid, item, "xml")
+        if xml_path:
+            paths.append(xml_path)
+            pdf_path = self._download_link(uuid, item, "pdf")
+            if pdf_path:
+                paths.append(pdf_path)
+        return paths
+
+    # ------------------------------------------------------------------
+    def _download_link(self, uuid: str, item: dict, tipo: str):
+        enlace: ElementHandle | None = (item.get("links") or {}).get(tipo)
+        if enlace is None:
+            logger.debug("DTE %s sin enlace %s", uuid, tipo.upper())
             return None
 
-        with self.page.expect_download(timeout=self.timeout_ms) as download_info:
-            link.click()
+        try:
+            download = self._click_and_capture(enlace)
+            return self._save(download, uuid, tipo)
+        except PWTimeout:
+            logger.warning("Timeout de descarga %s %s; verificando ventana nueva",
+                           tipo.upper(), uuid)
+            return self._download_via_popup(uuid, item.get("links") or {}, tipo)
 
-        download: Download = download_info.value
-        path = self._persist(download, ext)
-        logger.info("Descargado %s -> %s", ext.upper(), path.name)
-        return path
+    def _click_and_capture(self, enlace) -> Download:
+        with self.page.expect_download(timeout=self.timeout_ms) as info:
+            enlace.click()
+        return info.value
 
-    def _persist(self, download: Download, ext: str) -> Path:
-        """Renombra y descarga el archivo; recupera UUID de la URL."""
-        suggested = download.suggested_filename or f"cfdi_{int(time.time())}.{ext}"
-        source = self.download_dir / suggested
-        download.save_as(str(source))
-        target = self._rename(source, suggested, ext)
-        return target
+    def _save(self, download: Download, uuid: str, tipo: str) -> Path:
+        sugerido = download.suggested_filename or f"{uuid}.{tipo}"
+        destino = self._filename(destino_uuid=uuid, base=sugerido, tipo=tipo)
+        download.save_as(str(destino))
+        logger.info("Descargado %s -> %s (%s KB)", tipo.upper(), destino.name,
+                    round(destino.stat().st_size / 1024))
+        return destino
 
-    def _rename(self, source: Path, suggested: str, ext: str) -> Path:
-        """Convierte 'Foo-UUID.xml' a 'UUID.xml' cuando corresponde."""
-        match = re.search(r"([0-9a-fA-F-]{36})", suggested)
-        suffix = f".{ext}"
-        if match:
-            target = self.download_dir / f"{match.group(1)}{suffix}"
-            if target != source:
-                source.rename(target)
-            return target
-        return source
+    # ------------------------------------------------------------------
+    def _filename(self, destino_uuid: str, base: str, tipo: str) -> Path:
+        """Nombre final: <UUID>.<ext>. Si no hay UUID, usa el sugerido saneado."""
+        ext = tipo.lower()
+        match = UUID_RE.search(base) or (UUID_RE.search(destino_uuid) if destino_uuid else None)
+        nombre = f"{match.group(0).upper()}.{ext}" if match else \
+                 (EXT_SANEADO.sub("_", base) or f"{destino_uuid}.{ext}")
+        destino = self.dir / nombre
+        contador = 1
+        while destino.exists():
+            destino = self.dir / f"{destino.stem}_{contador}{destino.suffix}"
+            contador += 1
+        return destino
 
-    def list_downloads(self) -> list[Path]:
-        return [f for f in sorted(self.download_dir.iterdir()) if f.is_file()]
+    def _download_via_popup(self, uuid: str, links: dict, tipo: str) -> Path | None:
+        """Corrección: si el portal abre el documento en nueva pestaña (PDF)."""
+        enlace = links.get(tipo)
+        if enlace is None:
+            return None
+        context = self.page.context
+        try:
+            with context.expect_page(timeout=15000) as popup_info:
+                enlace.click()
+            popup = popup_info.value
+            url = popup.url
+            popup.close()
+        except (PWTimeout, Exception) as exc:
+            logger.warning("Sin ventana nueva ni descarga para %s %s: %s",
+                           tipo.upper(), uuid, exc)
+            return None
+        if not re.match(r"^https?", url, re.I):
+            logger.warning("URL no HTTP en ventana nueva: %s", url)
+            return None
+        bytes_pdf = self.page.context.request.get(url).body()
+        destino = self._filename(uuid, f"{uuid}.{tipo}", tipo)
+        destino.write_bytes(bytes_pdf)
+        logger.info("Descargado %s vía ventana nueva -> %s", tipo.upper(), destino.name)
+        return destino

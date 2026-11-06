@@ -1,88 +1,156 @@
-"""Búsqueda de CFDIs en el portal del SAT."""
-import datetime
-import logging
+"""Consulta de DTE recibidos en la Agencia Virtual de SAT Guatemala.
 
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
+Detecta la tabla de resultados y los botones de descarga XML/PDF
+mediante análisis de texto (cabeceras, contenido de celdas y
+textos "XML"/"PDF"), lo que reduce dependencia de selectores exactos.
+"""
+import logging
+import re
+
+from playwright.sync_api import Page, TimeoutError as PWTimeout
 
 logger = logging.getLogger(__name__)
 
+UUID_RE = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
+                     r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
+
 
 class InvoiceSearch:
-    """Realiza búsquedas de facturas (recibidas/emitidas) en el portal."""
-
-    def __init__(self, page: Page, selectors: dict):
+    def __init__(self, page: Page, settings: dict, selectors: dict):
         self.page = page
-        self.selectors = selectors
-        self.retries = 3
+        self.sat = settings["sat"]
+        self.sel = selectors["consulta"]
         self.results: list[dict] = []
 
-    def search(self, date_from=None, date_to=None, issuer_rfc=None) -> list[dict]:
-        """Regresa una lista de resultados: {row_index, uuid?, folio?, element}."""
-        s = self.selectors
-        timeout_default = 15_000
-
-        self._open_module(s["menu"]["received_tab"].replace('a:has-text("', "").replace('")' , ""),
-                          timeout_default)
-        self._fill_dates(date_from, date_to, timeout_default)
-        if issuer_rfc:
-            try:
-                self.page.fill(s["search"]["rfc_emitter_input"], issuer_rfc, timeout=3000)
-            except PlaywrightTimeout:
-                logger.debug("No existe campo de RFC emisor; se omite el filtro")
-
-        self.page.click(s["search"]["search_button"], timeout=timeout_default)
-        self.page.wait_for_load_state("domcontentloaded", timeout=timeout_default)
-
-        return self._read_results()
-
-    def _open_module(self, module_name: str, timeout: int) -> None:
-        """Navega al módulo de facturas (Recibidos/Emitidos)."""
-        if "Lista" in self.page.url:
+    # ------------------------------------------------------------------
+    def open_module(self) -> None:
+        """Abre el módulo 'Consultar DTE' por URL directa o vía menú."""
+        url = (self.sat.get("consulta_dte_url") or "").strip()
+        timeout = self.sat["timeouts"]["default_ms"]
+        if url:
+            logger.info("Abriendo módulo Consultar DTE: %s", url)
+            self.page.goto(url, timeout=timeout, wait_until="domcontentloaded")
             return
+        logger.info("Sin URL directa; navegando por menú (selectores genéricos)")
+        for paso in self.sel.get("menu_path", []):
+            try:
+                self.page.locator(paso).first.click(timeout=timeout)
+                self.page.wait_for_load_state("domcontentloaded")
+            except PWTimeout:
+                logger.warning("Paso de menú no disponible: %s", paso)
+
+    def apply_filters(self, date_from: str, date_to: str,
+                      tipo_operacion: str = "Recibidos") -> None:
+        """Fechas (dd/MM/yyyy) y tipo de operación 'Recibidos'."""
+        timeout = self.sat["timeouts"]["default_ms"]
+        facs = self.sel["filtros"]
+
+        # Tipo de operación (select, si existe) — POR CONFIRMAR
         try:
-            self.page.click(f'a:has-text("{module_name}")', timeout=timeout)
-            self.page.wait_for_load_state("domcontentloaded", timeout=timeout)
-        except PlaywrightTimeout:
-            logger.warning("No se pudo abrir el módulo %s directamente", module_name)
+            sel_op = self.page.locator(facs["tipo_operacion"]).first
+            if sel_op.count() > 0:
+                sel_op.select_option(label=tipo_operacion)
+        except Exception as exc:
+            logger.debug("Filtro tipo_operación no aplicado: %s", exc)
 
-    def _fill_dates(self, date_from, date_to, timeout: int) -> None:
-        today = datetime.date.today()
-        date_from = date_from or today.strftime("%d/%m/%Y")
-        date_to = date_to or today.strftime("%d/%m/%Y")
-        s = self.selectors["search"]
-        self.page.fill(s["date_from_input"], date_from, timeout=timeout)
-        self.page.fill(s["date_to_input"], date_to, timeout=timeout)
-        # Cierra el calendario para que el campo tome el valor
-        self.page.keyboard.press("Escape")
+        # Fechas por confirmar; son inputs genéricos con id conteniendo 'fecha'
+        inputs = self.page.locator(facs["fecha_desde"])
+        nombres = ["desde", "hasta"]
+        for i, valor in enumerate([date_from, date_to]):
+            try:
+                objetivo = inputs.nth(i)
+                if objetivo.count() == 0:
+                    logger.warning("No se encontró campo de fecha '%s'", nombres[i])
+                    continue
+                objetivo.fill(valor, timeout=timeout)
+            except Exception as exc:
+                logger.warning("Filtro fecha %s no aplicado: %s", nombres[i], exc)
 
-    def _read_results(self) -> list[dict]:
-        s = self.selectors
-        if self.page.query_selector(s["search"]["no_results_message"]):
-            logger.info("El SAT no devolvió resultados")
+        try:
+            self.page.locator(facs["buscar_btn"]).first.click(timeout=timeout)
+            self.page.wait_for_load_state("domcontentloaded")
+            self.page.wait_for_timeout(2000)   # redes JSF/PrimeFaces
+        except PWTimeout as exc:
+            logger.error("No se pudo ejecutar la búsqueda: %s", exc)
+            raise
+
+    # ------------------------------------------------------------------
+    def read_results(self) -> list[dict]:
+        """Lee la tabla de resultados de DTE (recibe: filas multidentificación)."""
+        self.results = []
+        timeout = self.sat["timeouts"]["default_ms"]
+        try:
+            self.page.wait_for_selector(self.sel["resultados"]["filas"],
+                                        timeout=timeout)
+        except PWTimeout:
+            logger.info("La consulta no devolvió filas visibles")
             return []
 
-        rows = self.page.query_selector_all(s["search"]["result_row"])
-        results = []
-        for index, row in enumerate(rows):
-            try:
-                fields = [cell.inner_text().strip() for cell in row.query_selector_all("td")]
-                if not fields:
-                    continue
-                results.append(
-                    {
-                        "row_index": index,
-                        "folio": fields[2] if len(fields) > 2 else "",
-                        "rfc_emisor": fields[1] if len(fields) > 1 else "",
-                        "fecha": fields[3] if len(fields) > 3 else "",
-                        "element": row,
-                    }
-                )
-            except Exception as exc:
-                logger.debug("Fila %s ignorada: %s", index, exc)
-        self.results = results
-        logger.info("%s filas CFDI analizadas", len(results))
-        return results
+        candidatos = sorted(
+            self.page.query_selector_all(self.sel["resultados"]["tabla"]),
+            key=lambda t: len(t.query_selector_all("tbody tr")),
+            reverse=True,
+        )
+        if not candidatos:
+            return []
 
-    def has_results(self) -> bool:
-        s = self.selectors
-        return self.page.query_selector(s["search"]["result_row"]) is not None or bool(self.results)
+        tabla = candidatos[0]
+        headers = self._headers(tabla)
+
+        for fila in tabla.query_selector_all(self.sel["resultados"]["filas"]):
+            celdas = [c.inner_text().strip() for c in fila.query_selector_all("td")]
+            if not any(celdas) or len(celdas) < 2:
+                continue
+            uuid = self._find_uuid(celdas)
+            enlaces = self._download_buttons(fila)
+            self.results.append({
+                "uuid": uuid,
+                "cells": celdas,
+                "headers": headers,
+                "links": enlaces,          # {"xml": handle|None, "pdf": handle|None}
+            })
+
+        logger.info("DTE leídos de la consulta: %s", len(self.results))
+        return self.results
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _headers(tabla) -> dict:
+        """Mapea nombre de cabecera -> índice de columna."""
+        headers = {}
+        primera = tabla.query_selector_all("thead tr, tr")
+        if not primera:
+            return headers
+        celdas = primera[0].query_selector_all("th, td")
+        for i, c in enumerate(celdas):
+            texto = c.inner_text().strip().lower()
+            if texto:
+                headers[texto] = i
+        return headers
+
+    @staticmethod
+    def _find_uuid(celdas: list[str]) -> str:
+        for celda in celdas:
+            match = UUID_RE.search(celda)
+            if match:
+                return match.group(0).upper()
+        return ""
+
+    @staticmethod
+    def _download_buttons(fila) -> dict:
+        """Detecta botones/links de descarga por su texto (XML/PDF)."""
+        links = {"xml": None, "pdf": None}
+        for a in fila.query_selector_all("a, button, input, span"):
+            texto = ""
+            try:
+                texto = (a.inner_text() or a.get_attribute("title") or
+                         a.get_attribute("value") or "").strip().upper()
+            except Exception:
+                continue
+            if not texto:
+                continue
+            if "XML" in texto and links["xml"] is None:
+                links["xml"] = a
+            elif "PDF" in texto and links["pdf"] is None:
+                links["pdf"] = a
+        return links

@@ -1,41 +1,40 @@
 # ==========================================================
-# Configuración general de la automatización
+# Configuración general - FASE 1: SAT Guatemala
 # ==========================================================
 
 sat:
-  portal_url: "https://portalcfdi.facturaelectronica.sat.gob.mx/"
-  login_url: "https://cfdiauth.sat.gob.mx/nidp/wsfed/FP?SAMLRequest="
-  downloads_dir: "data/downloads"
-  processed_dir: "data/processed"
-  errors_dir: "data/errors"
-  timeouts:
-    default: 15          # segundos para esperas genéricas
-    login: 30            # segundos para la autenticación
-    download: 90         # segundos de espera de descargas
-  filters:
-    receipt_type: "Recibidos"   # Recibidos | Emitidos
-    default_date_from: ""       # dd/mm/yyyy, vacío = hoy
-    default_date_to: ""
+  # Agencia Virtual (login verificado)
+  portal_url: "https://portal.sat.gob.gt/portal/"
+  # URL DIRECTA del módulo "Consultar DTE" dentro de Agencia Virtual.
+  # Dejar vacío: el sistema usará menu_path de selectors.yaml, o mejor,
+  # ejecutar tools/discover_dte_selectors.py y pegar aquí la URL observada.
+  consulta_dte_url: ""
 
-destination:
-  portal_url: ""
-  login_url: ""
+  dirs:
+    downloads: "data/downloads"
+    processed: "data/processed"
+    errors: "data/errors"
+    session: "storage/sat_av_state.json"   # sesión reutilizable (con MFA)
+
   timeouts:
-    default: 15
-    login: 30
+    default_ms: 15000
+    login_ms: 30000
+    mfa_s: 180        # tiempo en segundos para que el humano ingrese el código 2FA
+    download_ms: 120000
+
+  # Filtros de la consulta de DTE recibidos
+  filters:
+    tipo_operacion: "Recibidos"   # recibidos | emitidos
+    dias_atras_default: 7
 
 processing:
-  validate_rfc: true
-  cfdi_namespaces:
-    cfdi: "http://www.sat.gob.mx/cfd/4"
-    tfd: "http://www.sat.gob.mx/TimbreFiscalDigital"
-  accepted_extensions: [".xml", ".pdf"]
+  validar_nit: true      # checksum módulo 11 del NIT
 
 database:
-  pool_size: 5
-  echo_sql: false
+  ruta: "data/automatizacion.db"
 
 run:
-  retries: 3
-  retry_delay_seconds: 10
-  headless: true
+  # Se recomienda headful (false): Cloudflare y 2FA funcionan mejor visibles.
+  headless: false
+  retries: 2
+  retry_delay_s: 5
