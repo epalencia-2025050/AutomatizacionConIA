@@ -33,6 +33,25 @@ processing:
 database:
   ruta: "data/automatizacion.db"
 
+destination:
+  # ===================== FASE 3 - PENDIENTE DE INTEGRACIÓN =====================
+  # La plataforma destino es desconocida. NO llenar hasta conocerla.
+  # Cuando esté la URL:
+  #   1. habilitado: true
+  #   2. url: login completo (ej. https://xx/portal/login)
+  #   3. selectors.yaml -> destination.login y destination.envio
+  #   4. .env: DEST_USER y DEST_PASSWORD
+  habilitado: false
+  url: ""
+  timeouts:
+    login_ms: 30000
+    timeout_ms: 20000
+  max_intentos: 3
+  browser:
+    headless: false
+    session: "storage/dest_state.json"
+
+
 run:
   # Se recomienda headful (false): Cloudflare y 2FA funcionan mejor visibles.
   headless: false

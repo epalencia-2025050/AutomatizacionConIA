@@ -76,9 +76,19 @@ cambia o si la página tiene selectores propios no genéricos.
 | Fase | Descripción | Estado |
 |---|---|---|
 | 1 | Consulta y descarga DTE SAT GT | 🔄 MVP listo para validar en vivo |
-| 2 | Procesamiento XML + BD SQLite | ✅ **Implementada - 16 tests OK** |
-| 3 | Transferencia a página destino | pendiente (URL aún desconocida) |
+| 2 | Procesamiento XML + BD SQLite | ✅ Implementada |
+| 3 | Transferencia a página destino | 🏗️ **Infraestructura lista - plug del portal real pendiente** |
 | 4 | Integración + GUI Tkinter + reportes | pendiente |
+
+## Fase 3 — Cómo se integrará la plataforma destino (cuando la conozcas)
+
+El destino es desconocido, así que la transferencia es **plug-in**: no hay selectores inventados y el sistema no intenta conexión mientras no se configure. Al tener la URL y una cuenta de prueba:
+
+1. `config/settings.yaml` → `destination.habilitado: true` y `url: <login completo>`
+2. `config/selectors.yaml` → `destination.login` (user/password/botón), `destination.envio` (form_url, campos, input_archivo, guardar, confirmación)
+3. `.env` → `DEST_USER`, `DEST_PASSWORD`
+4. (Si el formulario es complejo, se crea una subclase de `DestinationModule` en `src/destination/`, es el único punto de código).
+5. `python main.py --solo-subir` para transferir lo pendiente.
 
 ## Seguridad
 

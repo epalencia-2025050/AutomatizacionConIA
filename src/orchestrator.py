@@ -21,6 +21,8 @@ from src.utils.file_manager import FileManager
 from src.utils.logger import setup_logger
 from src.database.repository import Repository
 from src.processing.processor import InvoiceProcessor
+from src.destination.browser import DestinationBrowser
+from src.destination.uploader import DestinationUploader
 
 logger = logging.getLogger(__name__)
 
@@ -47,25 +49,33 @@ class Orchestrator:
 
     # ------------------------------------------------------------------
     def run(self, date_from: str = None, date_to: str = None,
-            dry_run: bool = False, solo_procesar: bool = False) -> dict:
+            dry_run: bool = False, solo_procesar: bool = False,
+            solo_subir: bool = False) -> dict:
         setup_logger()
         sat = self.settings["sat"]
         rango = self._normalizar_fechas(date_from, date_to, sat)
-        estado = {"descargas": 0, "validos": 0, "duplicados": 0, "errores": 0}
+        estado = {"descargas": 0, "validos": 0, "duplicados": 0, "errores": 0,
+                  "enviadas": 0, "sin_confirmacion": 0}
 
-        logger.info("=== INICIO === %s | dry_run=%s solo_procesar=%s",
-                    rango, dry_run, solo_procesar)
+        logger.info("=== INICIO === %s | dry_run=%s solo_procesar=%s solo_subir=%s",
+                    rango, dry_run, solo_procesar, solo_subir)
 
-        if not solo_procesar:
+        if not solo_procesar and not solo_subir:
             estado["descargas"] = self._fase_sat(sat, rango, dry_run)
 
         # ---- FASE 2: procesamiento y almacenamiento ----
-        if not dry_run:
+        if not dry_run and not solo_subir:
             estado_proceso = self._fase_procesamiento()
             estado.update({"validos": estado_proceso.get("validos", 0),
                            "duplicados": estado_proceso.get("duplicados", 0),
                            "errores": estado_proceso.get("errores", 0)})
             logger.info("Resumen por estado en BD: %s", self._repo_resumen())
+
+        # ---- FASE 3: transferencia al destino ----
+        if not dry_run:
+            f3 = self._fase_destino()
+            estado.update({"enviadas": f3.get("enviadas", 0),
+                           "sin_confirmacion": f3.get("sin_confirmacion", 0)})
 
         logger.info("=== FIN === %s", estado)
         return estado
@@ -116,6 +126,35 @@ class Orchestrator:
         processor = InvoiceProcessor(self.settings, self.files, self._repo)
         conteo = processor.procesar_descargas()
         return conteo
+
+    def _fase_destino(self) -> dict:
+        """Fase 3: sólo si destination.habilitado == true en settings."""
+        dest = self.settings.get("destination") or {}
+        if not dest.get("habilitado"):
+            logger.info("Fase 3 deshabilitada (destination.habilitado=false): "
+                        "no se intentará envíos al destino")
+            return {"enviadas": 0}
+        if self._repo is None:
+            self._repo = Repository(self.db_path)
+        # MÃ³dulo genÃ©rico (por configuraciÃ³n). Cuando se conozca la
+        # plataforma real, se crea su subclase y se hace plug aquÃ­.
+        from src.destination.invoice_form import GenericDestinationModule
+        browser_cfg = dest.get("browser") or {}
+        module = GenericDestinationModule(self.settings, self.selectors, None)
+        uploader = DestinationUploader(self._repo, module,
+                                       max_intentos=int(dest.get("max_intentos", 3)))
+        session = Path.cwd() / browser_cfg.get("session", "storage/dest_state.json")
+        headless = bool(browser_cfg.get("headless", False))
+        browser = DestinationBrowser(headless=headless, session_path=session)
+        try:
+            browser.start()
+            module.browser = browser
+            module.page = browser.page
+            module.auth.page = browser.page
+            module.configurado = module._configurado()
+            return uploader.run()
+        finally:
+            browser.close()
 
     def _repo_resumen(self) -> dict:
         try:
