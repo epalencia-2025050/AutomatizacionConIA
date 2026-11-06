@@ -1,0 +1,46 @@
+# ==========================================================
+# Selectores del portal del SAT
+# NOTA: el SAT cambia con frecuencia su portal; revisar
+# manualmente si algún selector falla.
+# ==========================================================
+
+sat:
+  login:
+    rfc_input: 'input[name="rfc"]'
+    password_input: 'input[name="password"]'
+    submit_button: 'button[type="submit"]'
+    alert_error: '.alert-danger, .swal2-container'
+  menu:
+    received_tab: 'a:has-text("Recibidos")'
+    issued_tab: 'a:has-text("Emitidos")'
+  search:
+    date_from_input: 'input#dateFrom, input[name="dateFrom"]'
+    date_to_input: 'input#dateTo, input[name="dateTo"]'
+    rfc_emitter_input: 'input#emitterRrfc, input[name="emitterRrfc"]'
+    search_button: 'button:has-text("Buscar CFDI"), input[type="submit"]'
+    results_table: 'table'
+    result_row: 'table tbody tr'
+    download_xml_link: 'a[onclick*="RecUpdXML"]'
+    download_pdf_link: 'a[onclick*="RecAcusePDF"]'
+    no_results_message: 'text="No se encontraron resultados"'
+
+download:
+  pdf_acuse_window: 'iframe, embed[type="application/pdf"]'
+  close_button: 'button:has-text("Cerrar"), a:has-text("Cerrar")'
+
+# ==========================================================
+# Selectores del sistema destino (ajustar a la plataforma real)
+# ==========================================================
+destination:
+  login:
+    user_input: 'input[name="username"]'
+    password_input: 'input[name="password"]'
+    submit_button: 'button[type="submit"]'
+  invoice_form:
+    new_invoice_button: 'a:has-text("Nueva factura")'
+    rfc_input: 'input[name="rfc"]'
+    uuid_input: 'input[name="uuid"]'
+    total_input: 'input[name="total"]'
+    upload_input: 'input[type="file"]'
+    save_button: 'button:has-text("Guardar")'
+    success_toast: '.toast-success, .alert-success'

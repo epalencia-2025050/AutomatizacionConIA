@@ -1,0 +1,33 @@
+# Entorno virtual
+.env
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Datos sensibles / descargas
+data/downloads/*
+data/processed/*
+data/errors/*
+!data/downloads/.gitkeep
+!data/processed/.gitkeep
+!data/errors/.gitkeep
+
+# Credenciales y sesiones del navegador
+credentials/
+*.storage_state.json
+*.pfx
+*.key
+
+# Logs
+logs/*.log
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

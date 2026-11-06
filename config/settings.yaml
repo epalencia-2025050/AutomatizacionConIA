@@ -1,0 +1,41 @@
+# ==========================================================
+# Configuración general de la automatización
+# ==========================================================
+
+sat:
+  portal_url: "https://portalcfdi.facturaelectronica.sat.gob.mx/"
+  login_url: "https://cfdiauth.sat.gob.mx/nidp/wsfed/FP?SAMLRequest="
+  downloads_dir: "data/downloads"
+  processed_dir: "data/processed"
+  errors_dir: "data/errors"
+  timeouts:
+    default: 15          # segundos para esperas genéricas
+    login: 30            # segundos para la autenticación
+    download: 90         # segundos de espera de descargas
+  filters:
+    receipt_type: "Recibidos"   # Recibidos | Emitidos
+    default_date_from: ""       # dd/mm/yyyy, vacío = hoy
+    default_date_to: ""
+
+destination:
+  portal_url: ""
+  login_url: ""
+  timeouts:
+    default: 15
+    login: 30
+
+processing:
+  validate_rfc: true
+  cfdi_namespaces:
+    cfdi: "http://www.sat.gob.mx/cfd/4"
+    tfd: "http://www.sat.gob.mx/TimbreFiscalDigital"
+  accepted_extensions: [".xml", ".pdf"]
+
+database:
+  pool_size: 5
+  echo_sql: false
+
+run:
+  retries: 3
+  retry_delay_seconds: 10
+  headless: true
