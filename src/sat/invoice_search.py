@@ -15,12 +15,44 @@ UUID_RE = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
                      r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
 
 
+class SatNavigationError(RuntimeError):
+    """La pantalla del SAT no coincide con los selectores configurados."""
+
+
 class InvoiceSearch:
     def __init__(self, page: Page, settings: dict, selectors: dict):
         self.page = page
         self.sat = settings["sat"]
         self.sel = selectors["consulta"]
         self.results: list[dict] = []
+
+    def _manual_navigation(self, reason: str) -> None:
+        message = (
+            f"{reason}\n"
+            "Navega manualmente en el navegador abierto hasta "
+            "'Consultar DTE'. Cuando veas el formulario de consulta, vuelve "
+            "a esta consola y presiona Enter."
+        )
+        if self.sat.get("headless", False):
+            raise SatNavigationError(
+                f"{reason} El modo headless no permite navegación manual. "
+                "Verifica los selectores con "
+                "'python tools/discover_dte_selectors.py' o configura "
+                "sat.consulta_dte_url."
+            )
+        print(f"\n{message}\n")
+        try:
+            input()
+        except EOFError:
+            raise SatNavigationError(
+                f"{reason} No hay consola interactiva para continuar."
+            ) from None
+        if self.page.is_closed() or "login.jsf" in self.page.url:
+            raise SatNavigationError(
+                "La página del SAT se cerró o volvió al login; inicia sesión "
+                "y vuelve a intentar."
+            )
+        logger.info("Continuando con la navegación manual: %s", self.page.url)
 
     # ------------------------------------------------------------------
     def open_module(self) -> None:
@@ -33,11 +65,21 @@ class InvoiceSearch:
             return
         logger.info("Sin URL directa; navegando por menú (selectores genéricos)")
         for paso in self.sel.get("menu_path", []):
+            locator = self.page.locator(paso).first
+            if locator.count() == 0:
+                self._manual_navigation(
+                    f"No se encontró el selector de menú {paso!r}; "
+                    "los selectores actuales son genéricos."
+                )
+                return
             try:
-                self.page.locator(paso).first.click(timeout=timeout)
+                locator.click(timeout=timeout)
                 self.page.wait_for_load_state("domcontentloaded")
             except PWTimeout:
-                logger.warning("Paso de menú no disponible: %s", paso)
+                self._manual_navigation(
+                    f"El selector de menú {paso!r} no se pudo abrir."
+                )
+                return
 
     def apply_filters(self, date_from: str, date_to: str,
                       tipo_operacion: str = "Recibidos") -> None:
@@ -55,24 +97,40 @@ class InvoiceSearch:
 
         # Fechas por confirmar; son inputs genéricos con id conteniendo 'fecha'
         inputs = self.page.locator(facs["fecha_desde"])
+        if inputs.count() < 2:
+            raise SatNavigationError(
+                "No se encontraron los dos campos de fecha de Consultar DTE. "
+                "Verifica los selectores reales con "
+                "'python tools/discover_dte_selectors.py'."
+            )
         nombres = ["desde", "hasta"]
         for i, valor in enumerate([date_from, date_to]):
             try:
                 objetivo = inputs.nth(i)
-                if objetivo.count() == 0:
-                    logger.warning("No se encontró campo de fecha '%s'", nombres[i])
-                    continue
                 objetivo.fill(valor, timeout=timeout)
             except Exception as exc:
-                logger.warning("Filtro fecha %s no aplicado: %s", nombres[i], exc)
+                raise SatNavigationError(
+                    f"No se pudo completar el campo de fecha {nombres[i]!r}. "
+                    "Revisa los selectores reales en config/selectors.yaml."
+                ) from exc
 
+        buscar = self.page.locator(facs["buscar_btn"]).first
+        if buscar.count() == 0:
+            raise SatNavigationError(
+                "No se encontró el botón Buscar de Consultar DTE. "
+                "Verifica su selector con "
+                "'python tools/discover_dte_selectors.py'."
+            )
         try:
-            self.page.locator(facs["buscar_btn"]).first.click(timeout=timeout)
+            buscar.click(timeout=timeout)
             self.page.wait_for_load_state("domcontentloaded")
             self.page.wait_for_timeout(2000)   # redes JSF/PrimeFaces
         except PWTimeout as exc:
             logger.error("No se pudo ejecutar la búsqueda: %s", exc)
-            raise
+            raise SatNavigationError(
+                "No se pudo ejecutar la búsqueda en Consultar DTE; revisa "
+                "el selector del botón Buscar."
+            ) from exc
 
     # ------------------------------------------------------------------
     def read_results(self) -> list[dict]:

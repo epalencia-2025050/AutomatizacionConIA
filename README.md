@@ -46,6 +46,10 @@ Durante la ejecución (transacción interactiva):
 3. La sesión queda guardada en `storage/sat_av_state.json` (gitignored)
    para no repetir el login ni el 2FA en corridas siguientes.
 4. Consulta los DTE recibidos del rango de fechas y descarga XML + PDF.
+5. En modo visible, el navegador SAT permanece abierto al terminar esa fase;
+   pulsa Enter en la consola para cerrarlo y continuar. En modo headless no espera.
+   Si la navegación automática al módulo no encuentra el menú, puedes abrir
+   manualmente "Consultar DTE" en esa ventana y pulsar Enter para que continúe.
 
 ## Estructura
 

@@ -13,8 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 class BrowserManager:
-    def __init__(self, headless: bool, session_path: Path):
+    def __init__(self, headless: bool, session_path: Path,
+                 keep_open: bool = False):
         self.headless = headless
+        self.keep_open = keep_open and not headless
         self.session_path = Path(session_path)
         self._playwright = None
         self._context: BrowserContext | None = None
@@ -79,4 +81,9 @@ class BrowserManager:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.keep_open:
+            try:
+                input("\nSAT: navegador abierto. Presiona Enter para cerrarlo y continuar...")
+            except EOFError:
+                logger.warning("No hay consola disponible para mantener abierto el navegador")
         self.stop()

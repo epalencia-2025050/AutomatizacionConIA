@@ -16,7 +16,7 @@ import yaml
 
 from src.sat.browser import BrowserManager
 from src.sat.authentication import SatAuthentication
-from src.sat.invoice_search import InvoiceSearch
+from src.sat.invoice_search import InvoiceSearch, SatNavigationError
 from src.sat.downloader import Downloader
 from src.utils.file_manager import FileManager
 from src.utils.environment import load_environment
@@ -115,7 +115,8 @@ class Orchestrator:
         date_from, date_to = rango
         headless = bool(sat.get("headless", False))
         session = Path.cwd() / sat["dirs"]["session"]
-        with BrowserManager(headless=headless, session_path=session) as bm:
+        with BrowserManager(headless=headless, session_path=session,
+                            keep_open=True) as bm:
             auth = SatAuthentication(self.settings, self.selectors, bm)
             page = auth.login()
             search = InvoiceSearch(page, self.settings, self.selectors)
@@ -181,6 +182,9 @@ class Orchestrator:
             try:
                 return fn(*args)
             except Exception as exc:   # pylint: disable=broad-except
+                if isinstance(exc, SatNavigationError):
+                    logger.error("%s: %s", nombre, exc)
+                    raise
                 intento += 1
                 if intento > len(esperas):
                     logger.error("%s agotó %s reintentos",

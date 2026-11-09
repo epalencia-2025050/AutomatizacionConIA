@@ -2,6 +2,7 @@
 import pytest
 
 from src.orchestrator import Orchestrator
+from src.sat.invoice_search import SatNavigationError
 from src.utils.backup import BackupManager
 
 SETTINGS = {
@@ -52,6 +53,18 @@ def test_desactivado_no_reintenta(orch):
 
     with pytest.raises(RuntimeError):
         orch._con_reintentos("prueba", fn)
+    assert len(llamadas) == 1
+
+
+def test_error_de_selectores_sat_no_reintenta(orch):
+    llamadas = []
+
+    def fn():
+        llamadas.append(1)
+        raise SatNavigationError("selector no configurado")
+
+    with pytest.raises(SatNavigationError):
+        orch._con_reintentos("Fase 1 (SAT)", fn)
     assert len(llamadas) == 1
 
 
