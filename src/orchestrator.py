@@ -77,6 +77,15 @@ class Orchestrator:
             estado.update({"enviadas": f3.get("enviadas", 0),
                            "sin_confirmacion": f3.get("sin_confirmacion", 0)})
 
+        # ---- FASE 4: reporte de la corrida ----
+        if not dry_run:
+            from src.reporting.reporter import Reporter
+            repo = self._repo or Repository(self.db_path)
+            self._repo = repo
+            reporte = Reporter().reporte_ejecucion(
+                f"{rango[0]} a {rango[1]}", estado, repo)
+            estado["reporte"] = str(reporte)
+
         logger.info("=== FIN === %s", estado)
         return estado
 
@@ -127,6 +136,32 @@ class Orchestrator:
         conteo = processor.procesar_descargas()
         return conteo
 
+    # ------------------------------------------------------------------
+    # FASE 4: recuperación ante errores y reportes
+    # ------------------------------------------------------------------
+    def reprocesar_errores(self) -> int:
+        """Devuelve los archivos de data/errors a downloads y re-procesa.
+
+        Útil cuando el fallo vino de la red/portal, no del XML.
+        """
+        movidos = 0
+        for f in sorted(self.files.errors_dir.iterdir()):
+            if f.is_file():
+                destino = self.files.downloads_dir / f.name
+                f.replace(destino)
+                movidos += 1
+        logger.info("Recuperados %s archivos de errors para reprocesar", movidos)
+        if movidos:
+            self._fase_procesamiento()
+        return movidos
+
+    def generar_reporte(self, fechas: str = "", estado_flujo: dict | None = None):
+        """CSV con el resumen de BD y detalle de facturas."""
+        from src.reporting.reporter import Reporter
+        repo = self._repo or Repository(self.db_path)
+        return Reporter().reporte_ejecucion(fechas or "n/d",
+                                            estado_flujo or {}, repo)
+
     def _fase_destino(self) -> dict:
         """Fase 3: sólo si destination.habilitado == true en settings."""
         dest = self.settings.get("destination") or {}
@@ -136,22 +171,23 @@ class Orchestrator:
             return {"enviadas": 0}
         if self._repo is None:
             self._repo = Repository(self.db_path)
-        # MÃ³dulo genÃ©rico (por configuraciÃ³n). Cuando se conozca la
-        # plataforma real, se crea su subclase y se hace plug aquÃ­.
-        from src.destination.invoice_form import GenericDestinationModule
+        modulo_name = (dest.get("modulo") or "odoo").lower()
         browser_cfg = dest.get("browser") or {}
-        module = GenericDestinationModule(self.settings, self.selectors, None)
-        uploader = DestinationUploader(self._repo, module,
-                                       max_intentos=int(dest.get("max_intentos", 3)))
-        session = Path.cwd() / browser_cfg.get("session", "storage/dest_state.json")
         headless = bool(browser_cfg.get("headless", False))
+        session = Path.cwd() / browser_cfg.get("session", "storage/dest_state.json")
         browser = DestinationBrowser(headless=headless, session_path=session)
         try:
             browser.start()
-            module.browser = browser
-            module.page = browser.page
-            module.auth.page = browser.page
-            module.configurado = module._configurado()
+            if modulo_name == "odoo":
+                from src.destination.odoo import OdooDestinationModule
+                module = OdooDestinationModule(self.settings, self.selectors,
+                                               browser)
+            else:
+                from src.destination.invoice_form import GenericDestinationModule
+                module = GenericDestinationModule(self.settings,
+                                                  self.selectors, browser)
+            uploader = DestinationUploader(self._repo, module,
+                                           max_intentos=int(dest.get("max_intentos", 3)))
             return uploader.run()
         finally:
             browser.close()

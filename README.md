@@ -77,18 +77,58 @@ cambia o si la página tiene selectores propios no genéricos.
 |---|---|---|
 | 1 | Consulta y descarga DTE SAT GT | 🔄 MVP listo para validar en vivo |
 | 2 | Procesamiento XML + BD SQLite | ✅ Implementada |
-| 3 | Transferencia a página destino | 🏗️ **Infraestructura lista - plug del portal real pendiente** |
-| 4 | Integración + GUI Tkinter + reportes | pendiente |
+| 3 | Transferencia a Odoo | 🏗️ **Módulo Odoo listo - falta URL de instancia + mapeo de form** |
+| 4 | Integración + GUI Tkinter + reportes | ✅ **Implementada - 34 tests OK** |
 
-## Fase 3 — Cómo se integrará la plataforma destino (cuando la conozcas)
+## Fase 4 — GUI, reportes y recuperación
 
-El destino es desconocido, así que la transferencia es **plug-in**: no hay selectores inventados y el sistema no intenta conexión mientras no se configure. Al tener la URL y una cuenta de prueba:
+### Interfaz gráfica
+```bash
+python main.py --gui
+```
+- **▶ Ejecutar todo**: consulta SAT → descarga → procesa XML → BD → sube a destino (si está habilitado) → genera reporte
+- **⚙ Solo procesar XML**: Fase 2 sobre lo ya descargado (sin conectar al SAT)
+- **⇪ Solo subir a destino (Odoo)**: transfiere VALIDADA/PENDIENTE_SUBIDA (requiere Fase 3 activa)
+- **↻ Reprocesar errores**: devuelve `data/errors/*` a `data/downloads` y re-lanza el pipeline (errores temporales de red/portal)
+- **📄 Generar reporte**: CSV con estado actual de la BD
+- Filtros opcionales: rango de fechas `dd/mm/yyyy` y modo headless del navegador
+- Log en vivo en pantalla + `logs/automatizacion.log`
 
-1. `config/settings.yaml` → `destination.habilitado: true` y `url: <login completo>`
-2. `config/selectors.yaml` → `destination.login` (user/password/botón), `destination.envio` (form_url, campos, input_archivo, guardar, confirmación)
-3. `.env` → `DEST_USER`, `DEST_PASSWORD`
-4. (Si el formulario es complejo, se crea una subclase de `DestinationModule` en `src/destination/`, es el único punto de código).
-5. `python main.py --solo-subir` para transferir lo pendiente.
+### Reportes
+Cada corrida genera `data/reports/reporte_YYYYMMDD_HHMM.csv` (UTF-8 con BOM,
+abre directo en Excel) con secciones:
+- `EJECUCION`: rango de fechas y conteos del flujo
+- `ESTADO_BD`: resumen de la máquina de estados (DESCARGADA/SUBIDA/...)
+- `DETALLE`: una fila por factura con uuid, emisor, total, estado, rutas XML/PDF y fecha de carga
+
+### Recuperación
+Las facturas con ERROR conservan `intentos` y el motivo; la GUI permite
+reintentarlas con un clic. Los archivos con XML inválido van a
+`data/errors/` y se pueden reprocesar cuando el problema (red, portal) se resuelva.
+
+## Fase 3 — Destino: Odoo
+
+El módulo de Odoo ya está implementado (`src/destination/odoo.py`) con el **login estándar de Odoo verificado** (`/web/login`, campos `login`/`password`). Para activar la transferencia:
+
+1. `config/settings.yaml` →
+   ```yaml
+   destination:
+     habilitado: true
+     url: https://TU-INSTANCIA.odoo.com     # pega tu URL real
+     modulo: odoo
+   ```
+2. `.env` → `DEST_USER` (tu email de Odoo) y `DEST_PASSWORD`
+3. Completa el mapeo del formulario con la herramienta:
+   ```bash
+   python tools/discover_odoo.py https://TU-INSTANCIA.odoo.com
+   ```
+   Inicia sesión, navega a *Contabilidad → Facturas de proveedor → Nueva*,
+   pulsa `[i]` y copia los `input[name=...]` reportados a
+   `config/selectors.yaml → destination.odoo` (campos: proveedor,
+   referencia, total, adjunto XML/PDF, botón guardar).
+4. Prueba: `python main.py --solo-subir`
+
+> Alternativa futura: Odoo expone API XML-RPC con usuario+password (sin API Key), que sería más robusto que la UI; se evaluó tras la validación del flujo por navegador.
 
 ## Seguridad
 

@@ -45,27 +45,50 @@ consulta:
 
 destination:
   # ==================================================================
-  # Fase 3 - POR CONFIRMAR contra la página real (NO inventar).
-  # Dejar vacío: el sistema lo detecta y NO envía nada (seguro).
-  # Instrucciones al conocerse el portal en README sección Fase 3.
+  # login (Odoo usa sus selectors estándar, embebidos en
+  # src/destination/odoo.py; esta sección es sólo para el modo generico)
   # ==================================================================
   login:
-    url: ""            # se lee de settings.yaml/destination/url
-    user_field: ""     # ej. 'input[name="usuario"]'
-    password_field: "" # ej. 'input[type="password"]'
-    submit_button: ""  # ej. 'button[type="submit"]'
-    error_selector: "" # alerta/mensaje de credenciales inválidas
+    url: ""
+    user_field: ""
+    password_field: ""
+    submit_button: ""
+    error_selector: ""
 
   envio:
-    form_url: ""       # URL del formulario de nueva factura
-    campos:
-      # mapping: campo de la BD (columna) -> selector del input
-      # uuid: ''
-      # nit_emisor: ''
-      # numero_documento: ''
-      # total: ''
-    input_archivo: ""  # 'input[type="file"]'
-    guardar_btn: ""    # 'button...' de envío
-    confirmacion_selector: ""   # toast/alerta de éxito
-    verificacion_url: ""        # URL con búsqueda por UUID: usa {uuid}
-    verificacion_selector: ""   # selectores '|'-separados que confirman
+    form_url: ""
+    campos: {}
+    input_archivo: ""
+    guardar_btn: ""
+    confirmacion_selector: ""
+    verificacion_url: ""
+    verificacion_selector: ""
+
+  # ==================================================================
+  # odoo: captura de facturas de proveedor (app Contabilidad)
+  # POR CONFIRMAR con tools/discover_odoo.py (la UI varía por versión)
+  # ==================================================================
+  odoo:
+    database_field: ""     # sólo self-hosted con varias bases de datos
+    envio:
+      # Ruta de menú hasta la vista de Facturas de proveedor
+      menu_path:
+        - 'div.o_ActionMenusContainer >> nth=0'    # hamburguesa apps
+        - 'a:has-text("Contabilidad")'
+        - 'a:has-text("Facturas de proveedor")'
+      crear_btn: 'button.o_list_button_add, button:has-text("Nueva")'
+      campos:
+        # mapping: columna BD -> selector del input en el form
+        # Ej. (a confirmar en tu instancia):
+        # nit_emisor: 'div[name="partner_id"] input'
+        # numero_documento: 'input[name="ref"]'
+        # total: 'input[name="amount_total"]'
+      campos_many2one:
+        # nit_emisor: true     # campos Many2one: se confirma con Enter
+      guardar_btn: 'button.o_form_button_save, button:has-text("Guardar")'
+      confirmacion_selector: ''   # señal de validación tras guardar
+    adjuntos:
+      input_archivo: ''   # adjuntar XML/PDF en el chatter (por confirmar)
+  # verificación: URL de búsqueda por referencia = UUID
+  # verificacion_url ejemplo Odoo: /accounting/list/... con filtro {uuid}
+

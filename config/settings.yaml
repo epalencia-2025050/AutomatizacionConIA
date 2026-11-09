@@ -34,15 +34,17 @@ database:
   ruta: "data/automatizacion.db"
 
 destination:
-  # ===================== FASE 3 - PENDIENTE DE INTEGRACIÓN =====================
-  # La plataforma destino es desconocida. NO llenar hasta conocerla.
-  # Cuando esté la URL:
-  #   1. habilitado: true
-  #   2. url: login completo (ej. https://xx/portal/login)
-  #   3. selectors.yaml -> destination.login y destination.envio
-  #   4. .env: DEST_USER y DEST_PASSWORD
+  # ===================== FASE 3 - ODOO =====================
+  # Modulo: odoo (login estándar ya implementado y verificado).
+  # Falta SOLO la URL de tu instancia:
+  #   * Odoo Online:      https://tu-empresa.odoo.com
+  #   * Odoo self-hosted: https://midominio.com/odoo
+  # Pégala en destination.url y pon habilitado: true.
+  # Luego completa config/selectors.yaml -> destination.odoo con la
+  # herramienta tools/discover_odoo.py (F12 о snapshot del form real).
   habilitado: false
-  url: ""
+  url: ""                    # ej. https://empresa.odoo.com
+  modulo: "odoo"             # odoo | generico
   timeouts:
     login_ms: 30000
     timeout_ms: 20000
