@@ -46,6 +46,7 @@ class App:
         root.minsize(720, 480)
         self._construir_controles()
         self._construir_log()
+        self._construir_visor_bd()
         self._construir_barra_estado()
         root.after(150, self._drenar_cola)
 
@@ -105,6 +106,78 @@ class App:
         ttk.Label(barra, textvariable=self.estado,
                   font=("Segoe UI", 9, "bold")).pack(side="left")
 
+    def _construir_visor_bd(self) -> None:
+        """Fase 7: consulta rápida de la BD sin abrir DB Browser."""
+        marco = ttk.LabelFrame(self.root, text=" Facturas en la base de datos ",
+                               padding=8)
+        marco.pack(fill="x", padx=10, pady=6)
+
+        filtros = ttk.Frame(marco); filtros.pack(fill="x")
+        ttk.Label(filtros, text="Buscar:").pack(side="left")
+        self.filtro_texto = ttk.Entry(filtros, width=22)
+        self.filtro_texto.pack(side="left", padx=(4, 10))
+        ttk.Label(filtros, text="Estado:").pack(side="left")
+        self.filtro_estado = ttk.Combobox(
+            filtros, width=18, values=("Todos", "DESCARGADA", "VALIDADA",
+                                       "PENDIENTE_SUBIDA", "SUBIDA", "ERROR"),
+            state="readonly")
+        self.filtro_estado.current(0)
+        self.filtro_estado.pack(side="left", padx=(4, 10))
+        ttk.Button(filtros, text="🔍 Consultar",
+                   command=self.consultar_bd).pack(side="left")
+        self.resumen_bd = tk.StringVar(value="")
+        ttk.Label(filtros, textvariable=self.resumen_bd).pack(side="left",
+                                                              padx=12)
+
+        columnas = ("fecha", "nit", "emisor", "total", "estado", "uuid")
+        self.tabla = ttk.Treeview(marco, columns=columnas, show="headings",
+                                  height=7)
+        anchos = {"fecha": 110, "nit": 100, "emisor": 200, "total": 90,
+                  "estado": 130, "uuid": 290}
+        for c, texto in zip(columnas, ("Emisión", "NIT", "Emisor",
+                                       "Total", "Estado", "UUID")):
+            self.tabla.heading(c, text=texto)
+            self.tabla.column(c, width=anchos[c], anchor="w")
+        self.tabla.pack(fill="x")
+        self.consultar_bd()
+
+    def consultar_bd(self) -> None:
+        """Lista facturas con el filtro actual (lectura, nunca modifica)."""
+        try:
+            orch = self._nuevo_orchestrator()
+            from src.database.repository import Repository
+            repo = Repository(orch.db_path)
+        except Exception as exc:   # pylint: disable=broad-except
+            messagebox.showerror("BD", f"No se pudo abrir la BD: {exc}")
+            return
+        texto = self.filtro_texto.get().strip().lower()
+        est = self.filtro_estado.get()
+        estado_sql = None if est == "Todos" else est
+
+        for fila in self.tabla.get_children():
+            self.tabla.delete(fila)
+        sql = ("SELECT fecha_emision, nit_emisor, nombre_emisor, total, "
+               "estado, uuid FROM facturas ORDER BY id DESC")
+        filas = repo.conn.execute(sql).fetchall()
+        total = 0
+        for f in filas:
+            d = dict(f)
+            if estado_sql and d.get("estado") != estado_sql:
+                continue
+            combinado = " ".join(str(d.get(k) or "") for k in
+                                 ("uuid", "nombre_emisor", "nit_emisor",
+                                  "fecha_emision")).lower()
+            if texto and texto not in combinado:
+                continue
+            self.tabla.insert("", "end", values=(
+                d.get("fecha_emision") or "", d.get("nit_emisor") or "",
+                d.get("nombre_emisor") or "", d.get("total") or "",
+                d.get("estado") or "", d.get("uuid") or ""))
+            if d.get("estado") == "SUBIDA":
+                total += 1
+        self.resumen_bd.set(f"{len(self.tabla.get_children())} facturas "
+                            f"({total} subidas)")
+
     # ------------------------------------------------------------------
     # Log en vivo
     # ------------------------------------------------------------------
@@ -125,6 +198,13 @@ class App:
                 tag = nivel if nivel in ("ERROR", "WARNING") else "INFO"
                 self.txt.insert(tk.END, item.rstrip() + "\n", tag)
                 self.txt.see(tk.END)
+                # Fase 7: el SAT pidió 2FA -> avisar con campana y banner
+                if "ALERTA_SAT_PIDE_2FA" in item:
+                    self.txt.tag_config("ALERTA2FA", foreground="#7c2d12",
+                                        background="#fde68a")
+                    self.root.bell()
+                    self.estado.set(f"⚠ {self.estado.get()} | SAT pide 2FA: "
+                                    "revisa el navegador y tu teléfono")
         except queue.Empty:
             pass
         self.root.after(200, self._drenar_cola)

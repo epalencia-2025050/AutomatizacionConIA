@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from datetime import datetime
+from pathlib import Path
 
 from playwright.sync_api import Page
 
@@ -103,6 +104,16 @@ class SatAuthentication:
         print(f"  (esperando hasta {seconds} segundos...)")
         print("=" * 60 + "\n")
         logger.info("Esperando código MFA humano (máx %s s)", seconds)
+        # Fase 7: alerta visual en GUI + correo (marcador que la GUI detecta)
+        logger.info("ALERTA_SAT_PIDE_2FA: ingresa el código en el navegador")
+        try:
+            import yaml as _yaml
+            root = Path(__file__).resolve().parents[2]
+            settings = _yaml.safe_load(open(root / "config" / "settings.yaml",
+                                            encoding="utf-8"))
+            EmailSender(settings).alerta_2fa()
+        except Exception:
+            logger.debug("Alerta 2FA por correo no enviada (sin config)")
         while time.time() < deadline:
             url = self.page.url
             mfa_visible = False

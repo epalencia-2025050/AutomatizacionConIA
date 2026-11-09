@@ -29,6 +29,9 @@ def parse_args(argv):
                         "al destino (Fase 3, si está habilitada)")
     p.add_argument("--gui", action="store_true",
                    help="Abre la interfaz gráfica Tkinter (Fase 4)")
+    p.add_argument("--headless", action="store_true",
+                   help="Navegadores sin ventana (para ejecuciones "
+                        "programadas/desatendidas)")
     return p.parse_args(argv)
 
 
@@ -39,6 +42,10 @@ def main(argv=None) -> int:
         main_gui()
         return 0
     orchestrator = Orchestrator()
+    if args.headless:
+        orchestrator.settings["sat"]["headless"] = True
+        orchestrator.settings.setdefault("destination", {})\
+            .setdefault("browser", {})["headless"] = True
     try:
         estado = orchestrator.run(date_from=args.date_from, date_to=args.date_to,
                                   dry_run=args.dry_run,

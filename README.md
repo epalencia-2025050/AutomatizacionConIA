@@ -79,6 +79,43 @@ cambia o si la página tiene selectores propios no genéricos.
 | 2 | Procesamiento XML + BD SQLite | ✅ Implementada |
 | 3 | Transferencia a Odoo | 🏗️ **Módulo Odoo listo - falta URL de instancia + mapeo de form** |
 | 4 | Integración + GUI Tkinter + reportes | ✅ **Implementada - 34 tests OK** |
+| 5 | Mejora: Odoo por XML-RPC (sin navegador) | ✅ **Implementada - 40 tests OK** |
+| 6 | Mejora: reintentos con backoff + ejecución diaria + backup BD | ✅ **Implementada - 48 tests OK** |
+| 7 | Mejora: reporte por correo + alerta 2FA + visor de BD en la GUI | ✅ **Implementada - 54 tests OK** |
+
+## Fase 7 — Notificaciones y visor
+
+### Correo con el reporte (activable cuando gustes)
+1. En tu Google: **Verificación en 2 pasos** → **Contraseñas de aplicación** → genera una (16 letras; no es tu contraseña personal)
+2. `.env` → `MAIL_USER=`, `MAIL_PASS=`, `MAIL_TO=`
+3. `settings.yaml` → `notifications.email.activar: true`
+Desde entonces cada corrida envía a tu correo el CSV con el detalle. (SMTP genérico: sirve Gmail u otro proveedor; falla silenciosamente si el correo no funciona).
+
+### Alerta de 2FA
+Cuando el SAT pide el código doble-factactor: suena la campana y avisa en la GUI, y si el
+correo está activado te manda "⚠ SAT requiere tu 2FA ahora".
+
+### Visor de BD en la GUI
+Sección "Facturas en la base de datos": filtro por texto y estado, lista con
+emisión/NIT/emisor/total/estado/UUID y contador de subidas — sin abrir DB Browser.
+
+## Fase 6 — Robustez automática
+
+### Reintentos con espera progresiva
+Si una fase falla (red, portal), espera **1 → 2 → 5 min** y reintenta (configurable en
+`settings.yaml → reintentos`). Al agotarse, la corrida termina con el error registrado en el log.
+
+### Wizard de programación diaria (una vez, como Administrador)
+```bat
+tools\programar_tarea_diaria.bat     REM corre todos los días 08:00 desatendido
+tools\desprogramar_tarea.bat         REM cancela la programación
+```
+La tarea ejecuta `python main.py --headless`; existe el flag `--headless` para cualquier ejecución sin ventana (en la GUI también hay casilla).
+
+### Backup diario de la BD
+Cada corrida garantiza `data/backups/automatizacion_YYYYMMDD.db` (una por día) y conserva
+los últimos 30 (`settings.yaml → backups`). Permite recuperar el histórico si algo sale mal —
+la BD real nunca se toca al hacer copias.
 
 ## Fase 4 — GUI, reportes y recuperación
 
@@ -128,7 +165,13 @@ El módulo de Odoo ya está implementado (`src/destination/odoo.py`) con el **lo
    referencia, total, adjunto XML/PDF, botón guardar).
 4. Prueba: `python main.py --solo-subir`
 
-> Alternativa futura: Odoo expone API XML-RPC con usuario+password (sin API Key), que sería más robusto que la UI; se evaluó tras la validación del flujo por navegador.
+> **Modalidad recomendada (Fase 5): XML-RPC.** Odoo trae API integrada en
+> todas las versiones: en `settings.yaml` pon
+> `destination.modulo: "odoo_xmlrpc"` y en `destination.xmlrpc.db:` el
+> nombre de tu base de datos (sin tocar código). Ventajas: no se rompe
+> con cambios de interfaz, confirmación 100% verificable y
+> anti-duplicados por UUID antes de crear. El mismo DEST_USER /
+> DEST_PASSWORD sirve — el flujo por navegador queda como alternativa.
 
 ## Seguridad
 

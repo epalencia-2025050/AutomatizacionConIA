@@ -8,6 +8,7 @@ Fase 2: leer XML (lxml) -> validar (NIT módulo 11, UUID, total, PDF)
 La Fase 3 (destino) se integra cuando se conozca la plataforma.
 """
 import logging
+import time as _time
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -37,6 +38,8 @@ class Orchestrator:
         self.selectors = self._load_yaml("config/selectors.yaml")
         self.files = FileManager(self.settings)
         self._repo = None
+        # Fase 6: escala de esperas (1.0 en producción; 0.0 en tests)
+        self.escala_espera = 1.0
 
     # ------------------------------------------------------------------
     def _load_yaml(self, relative: str) -> dict:
@@ -60,12 +63,17 @@ class Orchestrator:
         logger.info("=== INICIO === %s | dry_run=%s solo_procesar=%s solo_subir=%s",
                     rango, dry_run, solo_procesar, solo_subir)
 
+        # ---- FASE 6: backup diario de la BD ----
+        self._backup_bd()
+
         if not solo_procesar and not solo_subir:
-            estado["descargas"] = self._fase_sat(sat, rango, dry_run)
+            estado["descargas"] = self._con_reintentos(
+                "Fase 1 (SAT)", self._fase_sat, sat, rango, dry_run)
 
         # ---- FASE 2: procesamiento y almacenamiento ----
         if not dry_run and not solo_subir:
-            estado_proceso = self._fase_procesamiento()
+            estado_proceso = self._con_reintentos(
+                "Fase 2 (procesamiento)", self._fase_procesamiento)
             estado.update({"validos": estado_proceso.get("validos", 0),
                            "duplicados": estado_proceso.get("duplicados", 0),
                            "errores": estado_proceso.get("errores", 0)})
@@ -73,7 +81,7 @@ class Orchestrator:
 
         # ---- FASE 3: transferencia al destino ----
         if not dry_run:
-            f3 = self._fase_destino()
+            f3 = self._con_reintentos("Fase 3 (destino)", self._fase_destino)
             estado.update({"enviadas": f3.get("enviadas", 0),
                            "sin_confirmacion": f3.get("sin_confirmacion", 0)})
 
@@ -85,6 +93,8 @@ class Orchestrator:
             reporte = Reporter().reporte_ejecucion(
                 f"{rango[0]} a {rango[1]}", estado, repo)
             estado["reporte"] = str(reporte)
+            # ---- FASE 7: correo con el reporte ----
+            self._enviar_reporte_correo(reporte, estado)
 
         logger.info("=== FIN === %s", estado)
         return estado
@@ -139,6 +149,61 @@ class Orchestrator:
     # ------------------------------------------------------------------
     # FASE 4: recuperación ante errores y reportes
     # ------------------------------------------------------------------
+    def _backup_bd(self) -> None:
+        """Copia diaria de la BD a data/backups con retención configurada."""
+        try:
+            from src.utils.backup import BackupManager
+            cfg = self.settings.get("backups") or {}
+            if not cfg.get("activar", True):
+                return
+            directorio = Path(str(cfg.get("dir", "data/backups")))
+            if not directorio.is_absolute():
+                directorio = Path.cwd() / directorio
+            BackupManager(self.db_path, directorio=directorio,
+                          retencion=int(cfg.get("retencion", 30)))\
+                .backup_diario()
+        except Exception:   # nunca romper la corrida por un backup
+            logger.exception("Fallo el backup de la BD (no es crítico)")
+
+    def _con_reintentos(self, nombre: str, fn, *args):
+        """Fase 6: ejecuta fn reintentando con espera progresiva.
+
+        esperas_min de settings (p.ej. [1, 2, 5]): si la fase falla,
+        espera 1 min, reintenta; falla de nuevo -> 2 min; 5 min; y al
+        agotarse levanta la excepción (la corrida termina con error).
+        """
+        cfg = (self.settings.get("reintentos") or {})
+        if not cfg.get("activar", True):
+            return fn(*args)
+        esperas = [int(m) for m in (cfg.get("esperas_min") or [1, 2, 5])]
+        intento = 0
+        while True:
+            try:
+                return fn(*args)
+            except Exception as exc:   # pylint: disable=broad-except
+                intento += 1
+                if intento > len(esperas):
+                    logger.error("%s agotó %s reintentos",
+                                 nombre, len(esperas))
+                    raise
+                espera = esperas[intento - 1]
+                logger.warning("%s falló (intento %s): %s — reintentando "
+                               "en %s min", nombre, intento, exc, espera)
+                self._dormir(espera)
+
+    def _dormir(self, minutos: int) -> None:
+        _time.sleep(minutos * 60 * self.escala_espera)
+
+    def _enviar_reporte_correo(self, reporte, estado: dict) -> None:
+        """Fase 7: envía el CSV por correo si notifications.email está activo."""
+        try:
+            from src.notifications.email import EmailSender
+            remitente = EmailSender(self.settings)
+            if remitente.disponible():
+                remitente.enviar_reporte(Path(reporte), estado)
+        except Exception:
+            logger.exception("Fallo el envío del reporte por correo (no crítico)")
+
     def reprocesar_errores(self) -> int:
         """Devuelve los archivos de data/errors a downloads y re-procesa.
 
@@ -172,6 +237,15 @@ class Orchestrator:
         if self._repo is None:
             self._repo = Repository(self.db_path)
         modulo_name = (dest.get("modulo") or "odoo").lower()
+        if modulo_name == "odoo_xmlrpc":
+            from src.destination.odoo_xmlrpc import OdooXmlrpcModule
+            if self._repo is None:
+                self._repo = Repository(self.db_path)
+            module = OdooXmlrpcModule(self.settings)
+            uploader = DestinationUploader(self._repo, module,
+                                           max_intentos=int(dest.get("max_intentos", 3)))
+            return uploader.run()
+
         browser_cfg = dest.get("browser") or {}
         headless = bool(browser_cfg.get("headless", False))
         session = Path.cwd() / browser_cfg.get("session", "storage/dest_state.json")

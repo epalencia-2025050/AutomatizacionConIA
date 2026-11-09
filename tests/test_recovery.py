@@ -29,6 +29,7 @@ def _orch(tmp_path, monkeypatch):
     ruta_bd = str(tmp_path / "bd.db")
     orch.settings = {"sat": {"dirs": {}}, "database": {"ruta": ruta_bd}}
     orch.selectors = {}
+    orch.escala_espera = 0.0
 
     llamadas = {"procesos": 0}
 

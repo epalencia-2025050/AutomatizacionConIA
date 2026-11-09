@@ -33,6 +33,29 @@ processing:
 database:
   ruta: "data/automatizacion.db"
 
+# ===================================== FASE 6: robustez automatica ======
+reintentos:
+  activar: true
+  # Si una fase falla (red/portal), espera 1 min, reintenta; luego 2;
+  # luego 5; al agotarse la corrida termina con error en el log.
+  esperas_min: [1, 2, 5]
+
+backups:
+  activar: true
+  dir: "data/backups"     # copia diaria: automatizacion_YYYYMMDD.db
+  retencion: 30           # guarda los últimos 30 días
+
+# ===================================== FASE 7: notificaciones ===========
+notifications:
+  email:
+    activar: false            # true cuando tengas la contraseña de aplicación
+    smtp_host: "smtp.gmail.com"   # Gmail; Outlook: smtp.office365.com
+    smtp_port: 465
+    usar_tls: true
+  # Credenciales van en .env: MAIL_USER, MAIL_PASS, MAIL_TO
+# ========================================================================
+# ========================================================================
+
 destination:
   # ===================== FASE 3 - ODOO =====================
   # Modulo: odoo (login estándar ya implementado y verificado).
@@ -44,7 +67,14 @@ destination:
   # herramienta tools/discover_odoo.py (F12 о snapshot del form real).
   habilitado: false
   url: ""                    # ej. https://empresa.odoo.com
-  modulo: "odoo"             # odoo | generico
+  modulo: "odoo"             # odoo | odoo_xmlrpc (recomendado, ver Fase 5)
+  # --- Odoo por API XML-RPC (sin navegador, sin API Key) ---
+  # VENTAJAS: no se rompe ante cambios de UI; confirmación 100%
+  # verificable; anti-duplicados por UUID ANTES de crear.
+  xmlrpc:
+    db: ""               # nombre de la BD en tu instancia (DEST_DB en .env también vale)
+    crear_partner: true  # crea al proveedor si el NIT no existe en Odoo
+    publicar: false      # false = queda en borrador para revisión humana             # odoo | generico
   timeouts:
     login_ms: 30000
     timeout_ms: 20000
