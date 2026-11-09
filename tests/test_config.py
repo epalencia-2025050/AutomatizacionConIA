@@ -1,7 +1,10 @@
 """Prueba la carga de configuración y las precondiciones de la Fase 1."""
+import os
 from pathlib import Path
 
 import yaml
+
+from src.utils.environment import load_environment
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,3 +39,18 @@ def test_estructura_proyecto():
                    "sat/invoice_search.py", "sat/downloader.py", "utils/logger.py",
                    "utils/file_manager.py"):
         assert (ROOT / "src" / modulo).is_file()
+
+
+def test_load_environment_carga_src_y_prioriza_raiz(tmp_path, monkeypatch):
+    root = tmp_path
+    (root / "src").mkdir()
+    (root / ".env").write_text("SAT_NIT=desde_raiz\n", encoding="utf-8")
+    (root / "src" / ".env").write_text(
+        "SAT_NIT=desde_src\nSAT_PASSWORD=clave_de_prueba\n", encoding="utf-8")
+    monkeypatch.delenv("SAT_NIT", raising=False)
+    monkeypatch.delenv("SAT_PASSWORD", raising=False)
+
+    load_environment(root)
+
+    assert os.environ["SAT_NIT"] == "desde_raiz"
+    assert os.environ["SAT_PASSWORD"] == "clave_de_prueba"

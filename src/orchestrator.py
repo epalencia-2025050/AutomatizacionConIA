@@ -19,6 +19,7 @@ from src.sat.authentication import SatAuthentication
 from src.sat.invoice_search import InvoiceSearch
 from src.sat.downloader import Downloader
 from src.utils.file_manager import FileManager
+from src.utils.environment import load_environment
 from src.utils.logger import setup_logger
 from src.database.repository import Repository
 from src.processing.processor import InvoiceProcessor
@@ -34,6 +35,7 @@ class Orchestrator:
     """Coordina el pipeline: SAT GT -> procesamiento -> BD -> archivos."""
 
     def __init__(self):
+        load_environment(ROOT_DIR)
         self.settings = self._load_yaml("config/settings.yaml")
         self.selectors = self._load_yaml("config/selectors.yaml")
         self.files = FileManager(self.settings)
@@ -115,9 +117,7 @@ class Orchestrator:
         session = Path.cwd() / sat["dirs"]["session"]
         with BrowserManager(headless=headless, session_path=session) as bm:
             auth = SatAuthentication(self.settings, self.selectors, bm)
-            auth.login()
-
-            page = bm.new_page()
+            page = auth.login()
             search = InvoiceSearch(page, self.settings, self.selectors)
             url_directa = (sat.get("consulta_dte_url") or "").strip()
             if url_directa:

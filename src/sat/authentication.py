@@ -31,7 +31,10 @@ class SatAuthentication:
         nit = os.getenv("SAT_NIT", "").strip()
         password = os.getenv("SAT_PASSWORD", "")
         if not nit or not password:
-            raise ValueError("SAT_NIT y SAT_PASSWORD deben estar definidos en .env")
+            raise ValueError(
+                "Faltan SAT_NIT o SAT_PASSWORD. Configúralos en "
+                ".env o src/.env (ambos junto a main.py o dentro de src)."
+            )
 
         url_login = "https://farm3.sat.gob.gt/menu/login.jsf"
         timeout = self.sat["timeouts"]["login_ms"]

@@ -19,14 +19,15 @@ python -m venv venv
 venv\Scripts\activate                # Windows
 pip install -r requirements.txt
 playwright install chromium          # descargar navegador Chromium
-copy .env.example .env 2>nul         # o edita directamente .env
+copy .env.example .env                # o edita directamente .env
 ```
 
-Edita `.env`:
+Edita `.env` y completa tus credenciales. También se admite `src\.env`;
+si ambos archivos existen, los valores de `.env` en la raíz tienen prioridad.
 
 ```ini
-SAT_NIT=1234567890           # NIT (o CUI), sin guiones
-SAT_PASSWORD=TuClaveSegura    # contraseña de Agencia Virtual
+SAT_NIT=tu_NIT                # NIT (o CUI), sin guiones
+SAT_PASSWORD=tu_clave         # contraseña de Agencia Virtual
 ```
 
 ## Uso
