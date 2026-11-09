@@ -1,0 +1,91 @@
+# ==========================================================
+# Configuración general - FASE 1: SAT Guatemala
+# ==========================================================
+
+sat:
+  # Agencia Virtual (login verificado)
+  portal_url: "https://portal.sat.gob.gt/portal/"
+  # URL DIRECTA del módulo "Consultar DTE" dentro de Agencia Virtual.
+  # Dejar vacío: el sistema usará menu_path de selectors.yaml, o mejor,
+  # ejecutar tools/discover_dte_selectors.py y pegar aquí la URL observada.
+  consulta_dte_url: ""
+
+  dirs:
+    downloads: "data/downloads"
+    processed: "data/processed"
+    errors: "data/errors"
+    session: "storage/sat_av_state.json"   # sesión reutilizable (con MFA)
+
+  timeouts:
+    default_ms: 15000
+    login_ms: 30000
+    mfa_s: 180        # tiempo en segundos para que el humano ingrese el código 2FA
+    download_ms: 120000
+
+  # Filtros de la consulta de DTE recibidos
+  filters:
+    tipo_operacion: "Recibidos"   # recibidos | emitidos
+    dias_atras_default: 7
+
+processing:
+  validar_nit: true      # checksum módulo 11 del NIT
+
+database:
+  ruta: "data/automatizacion.db"
+
+# ===================================== FASE 6: robustez automatica ======
+reintentos:
+  activar: true
+  # Si una fase falla (red/portal), espera 1 min, reintenta; luego 2;
+  # luego 5; al agotarse la corrida termina con error en el log.
+  esperas_min: [1, 2, 5]
+
+backups:
+  activar: true
+  dir: "data/backups"     # copia diaria: automatizacion_YYYYMMDD.db
+  retencion: 30           # guarda los últimos 30 días
+
+# ===================================== FASE 7: notificaciones ===========
+notifications:
+  email:
+    activar: false            # true cuando tengas la contraseña de aplicación
+    smtp_host: "smtp.gmail.com"   # Gmail; Outlook: smtp.office365.com
+    smtp_port: 465
+    usar_tls: true
+  # Credenciales van en .env: MAIL_USER, MAIL_PASS, MAIL_TO
+# ========================================================================
+# ========================================================================
+
+destination:
+  # ===================== FASE 3 - ODOO =====================
+  # Modulo: odoo (login estándar ya implementado y verificado).
+  # Falta SOLO la URL de tu instancia:
+  #   * Odoo Online:      https://tu-empresa.odoo.com
+  #   * Odoo self-hosted: https://midominio.com/odoo
+  # Pégala en destination.url y pon habilitado: true.
+  # Luego completa config/selectors.yaml -> destination.odoo con la
+  # herramienta tools/discover_odoo.py (F12 о snapshot del form real).
+  habilitado: false
+  url: ""                    # ej. https://empresa.odoo.com
+  modulo: "odoo"             # odoo | odoo_xmlrpc (recomendado, ver Fase 5)
+  # --- Odoo por API XML-RPC (sin navegador, sin API Key) ---
+  # VENTAJAS: no se rompe ante cambios de UI; confirmación 100%
+  # verificable; anti-duplicados por UUID ANTES de crear.
+  xmlrpc:
+    db: ""               # nombre de la BD en tu instancia (DEST_DB en .env también vale)
+    crear_partner: true  # crea al proveedor si el NIT no existe en Odoo
+    publicar: false      # false = queda en borrador para revisión humana             # odoo | generico
+  timeouts:
+    login_ms: 30000
+    timeout_ms: 20000
+  max_intentos: 3
+  browser:
+    headless: false
+    session: "storage/dest_state.json"
+
+
+run:
+  # Se recomienda headful (false): Cloudflare y 2FA funcionan mejor visibles.
+  headless: false
+  retries: 2
+  retry_delay_s: 5

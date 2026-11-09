@@ -1,0 +1,94 @@
+# ==========================================================
+# Selectores de SAT Guatemala - Agencia Virtual
+#
+# login.*  ya está VERIFICADO contra el HTML real
+#          (https://farm3.sat.gob.gt/menu/login.jsf)
+# consulta.* es la pantalla "Consultar DTE" que solo es
+#          visible tras iniciar sesión. Selectores marcados
+#          "POR CONFIRMAR" son valores genéricos de respaldo;
+#          usar tools/discover_dte_selectors.py para aclararlos.
+# ==========================================================
+
+login:
+  # --- VERIFICADO ---
+  username_input: 'input[name="formContent:username"]'
+  password_input: 'input[name="formContent:password"]'
+  submit_button: 'button[name="formContent:cmdbtnIngresar"]'
+  # Segundo factor (Microsoft Authenticator, 6 dígitos)
+  mfa_input: 'input[name="formContent:inMaskVerifyCode"]'
+  mfa_submit: 'button[name="formContent:cmdbtnVerifyCode"]'
+  # Señales de estado
+  login_card: '#loginFormulario'                 # visible => aún sin sesión
+  mfa_card: '#loginEncabezadoAuth'               # visible => pide código 2FA
+  error_selector: '#loginMsgError span.error'
+
+consulta:
+  # --- POR CONFIRMAR (pantalla interna tras login) ---
+  # Navegación por menú desde la página inicial de Agencia Virtual.
+  # Corregir con tools/discover_dte_selectors.py
+  menu_path:
+    - 'button:has-text("Menú")'
+    - 'text=Servicios Tributarios'
+    - 'text=Factura Electrónica en Línea (FEL)'
+    - 'text=Consultar DTE'
+  filtros:
+    # fallbacks genéricos hasta confirmar los IDs reales
+    fecha_desde: 'input[id*="fecha" i]'
+    fecha_hasta: 'input[id*="fecha" i]'
+    tipo_operacion: 'select[id*="operacion" i], select[id*="registro" i]'
+    buscar_btn: 'button:has-text("Buscar"), span:has-text("Buscar"), a:has-text("Buscar")'
+  resultados:
+    tabla: 'table'
+    filas: 'table tbody tr'
+    # Enlaces/botones de descarga se detectan por texto (XML / PDF / Excel)
+    # dentro de cada fila; no requiere selector exacto.
+
+destination:
+  # ==================================================================
+  # login (Odoo usa sus selectors estándar, embebidos en
+  # src/destination/odoo.py; esta sección es sólo para el modo generico)
+  # ==================================================================
+  login:
+    url: ""
+    user_field: ""
+    password_field: ""
+    submit_button: ""
+    error_selector: ""
+
+  envio:
+    form_url: ""
+    campos: {}
+    input_archivo: ""
+    guardar_btn: ""
+    confirmacion_selector: ""
+    verificacion_url: ""
+    verificacion_selector: ""
+
+  # ==================================================================
+  # odoo: captura de facturas de proveedor (app Contabilidad)
+  # POR CONFIRMAR con tools/discover_odoo.py (la UI varía por versión)
+  # ==================================================================
+  odoo:
+    database_field: ""     # sólo self-hosted con varias bases de datos
+    envio:
+      # Ruta de menú hasta la vista de Facturas de proveedor
+      menu_path:
+        - 'div.o_ActionMenusContainer >> nth=0'    # hamburguesa apps
+        - 'a:has-text("Contabilidad")'
+        - 'a:has-text("Facturas de proveedor")'
+      crear_btn: 'button.o_list_button_add, button:has-text("Nueva")'
+      campos:
+        # mapping: columna BD -> selector del input en el form
+        # Ej. (a confirmar en tu instancia):
+        # nit_emisor: 'div[name="partner_id"] input'
+        # numero_documento: 'input[name="ref"]'
+        # total: 'input[name="amount_total"]'
+      campos_many2one:
+        # nit_emisor: true     # campos Many2one: se confirma con Enter
+      guardar_btn: 'button.o_form_button_save, button:has-text("Guardar")'
+      confirmacion_selector: ''   # señal de validación tras guardar
+    adjuntos:
+      input_archivo: ''   # adjuntar XML/PDF en el chatter (por confirmar)
+  # verificación: URL de búsqueda por referencia = UUID
+  # verificacion_url ejemplo Odoo: /accounting/list/... con filtro {uuid}
+

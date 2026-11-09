@@ -1,0 +1,7 @@
+# Fases 1-2 - Consulta/descarga y procesamiento de DTE (SAT Guatemala)
+playwright>=1.44.0
+python-dotenv>=1.0.0
+PyYAML>=6.0
+lxml>=6.0
+pydantic>=2.9
+pytest>=8.0
