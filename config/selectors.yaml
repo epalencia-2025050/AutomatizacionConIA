@@ -23,25 +23,41 @@ login:
   error_selector: '#loginMsgError span.error'
 
 consulta:
-  # --- POR CONFIRMAR (pantalla interna tras login) ---
-  # Navegación por menú desde la página inicial de Agencia Virtual.
-  # Corregir con tools/discover_dte_selectors.py
+  # --- CONFIRMADO contra la pantalla real (nov 2026) ---
+  # CONSULTA DE DTE en la portada única JSF: la URL NO cambia al
+  # navegar (farm3.sat.gob.gt/menu/portada.jsf) -> no hay URL directa
+  # útil; el acceso al formulario es por el menú lateral o manual
+  # (el propio flujo lo pide una vez con Enter). Los FILTROS de abajo
+  # ya corresponden a los labels visibles del formulario real.
   menu_path:
-    - 'button:has-text("Menú")'
-    - 'text=Servicios Tributarios'
-    - 'text=Factura Electrónica en Línea (FEL)'
-    - 'text=Consultar DTE'
+    - '#btnContraerMenu'                # ☰/✕ toggle del panel lateral (CONFIRMADO)
+    - 'text=Servicios Tributarios'      # expande el submenú (flecha >)
+    - 'text=Factura Electrónica en Línea'   # columna 2 (CONFIRMADO en captura)
+    - 'text=Consultar DTE'              # columna 3 (CONFIRMADO en captura)
   filtros:
-    # fallbacks genéricos hasta confirmar los IDs reales
-    fecha_desde: 'input[id*="fecha" i]'
-    fecha_hasta: 'input[id*="fecha" i]'
-    tipo_operacion: 'select[id*="operacion" i], select[id*="registro" i]'
-    buscar_btn: 'button:has-text("Buscar"), span:has-text("Buscar"), a:has-text("Buscar")'
+    # === CONFIRMADOS contra el DOM real del frame (Angular Material) ===
+    # El formulario vive en un iframe (name=iframeContent; url contiene
+    # 'dte' o 'felcons') — DOM capturado nov 2026 en tools/.
+    tipo_operacion_mat: 'mat-select[name="tipoOperacion"]'
+    opcion_operacion: 'mat-option:has-text("Recibidos")'   # overlay del frame o página
+    fecha_ini_mat: 'input[name="fechaEmisionIni"]'    # Desde
+    fecha_fin_mat: 'input[name="fechaEmisionFinal"]'  # Hasta
+    buscar_btn_mat: 'button[type="submit"]:has-text("Buscar")'
+    # --- respaldos genéricos si el portal cambia ---
+    tipo_operacion: 'select:right-of(:text("Tipo de Operación"), 300), form select'
+    # select que lista los candidatos a tipo de operación (para autodetección)
+    tipo_candidatos: 'form select'
+    # dos campos de fecha de emisión: nth(0)=Desde, nth(1)=Hasta
+    fecha_desde: 'input[id*="fecha" i], form input[type="date"], input:right-of(:text("Fecha de Emisión"), 500)'
+    fecha_hasta: 'input[id*="fecha" i], form input[type="date"], input:right-of(:text("Fecha de Emisión"), 500)'
+    buscar_btn: 'button:has-text("Buscar"), span:has-text("Buscar")'
   resultados:
-    tabla: 'table'
-    filas: 'table tbody tr'
-    # Enlaces/botones de descarga se detectan por texto (XML / PDF / Excel)
-    # dentro de cada fila; no requiere selector exacto.
+    tabla: 'mat-table, table'
+    filas: 'mat-row, .mat-row, table tbody tr'
+    celdas: 'mat-cell, .mat-cell, td'
+    # Enlaces de descarga se detectan por texto/título (XML / PDF) en
+    # cada fila; la columna MARCA habilita los iconos de exportación
+    # (XML, Excel, PDF) de la barra superior.
 
 destination:
   # ==================================================================

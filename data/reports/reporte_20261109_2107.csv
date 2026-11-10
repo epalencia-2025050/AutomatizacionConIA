@@ -1,0 +1,2 @@
+﻿tipo,uuid,nit_emisor,nombre_emisor,total,estado,mensaje,ruta_xml,ruta_pdf,fecha_carga
+EJECUCION,2026-11-09T21:07:40,,,,,rango=02/11/2026 a 09/11/2026 | descargas=0; validos=0; duplicados=0; errores=0; enviadas=0; sin_confirmacion=0,,,

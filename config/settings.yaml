@@ -37,8 +37,11 @@ database:
 reintentos:
   activar: true
   # Si una fase falla (red/portal), espera 1 min, reintenta; luego 2;
-  # luego 5; al agotarse la corrida termina con error en el log.
-  esperas_min: [1, 2, 5]
+  # luego 3; al agotarse la corrida termina con error en el log.
+  # NOTA: el SAT aplica un enfriamiento breve cuando se re-loguea
+  # demasiado rápido (p.ej. tras cerrar el proceso); esperas de 0 min
+  # vuelven a chocar contra el bloqueo y alargan el ciclo.
+  esperas_min: [1, 2, 3]
 
 backups:
   activar: true

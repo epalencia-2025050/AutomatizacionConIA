@@ -115,17 +115,16 @@ class Orchestrator:
         date_from, date_to = rango
         headless = bool(sat.get("headless", False))
         session = Path.cwd() / sat["dirs"]["session"]
-        with BrowserManager(headless=headless, session_path=session,
-                            keep_open=True) as bm:
+        with BrowserManager(headless=headless, session_path=session) as bm:
             auth = SatAuthentication(self.settings, self.selectors, bm)
             page = auth.login()
-            search = InvoiceSearch(page, self.settings, self.selectors)
+            search = InvoiceSearch(page, self.settings, self.selectors,
+                                   auth=auth)
             url_directa = (sat.get("consulta_dte_url") or "").strip()
             if url_directa:
                 page.goto(url_directa, timeout=30000, wait_until="domcontentloaded")
             else:
                 search.open_module()
-                page.wait_for_timeout(1500)
             search.apply_filters(date_from, date_to,
                                  sat["filters"].get("tipo_operacion", "Recibidos"))
             resultados = search.read_results()
@@ -137,7 +136,8 @@ class Orchestrator:
                                 i, r.get("uuid") or "s/d", r["cells"])
                 return 0
             if resultados:
-                downloader = Downloader(page, self.settings, self.files.downloads_dir)
+                downloader = Downloader(page, self.settings, self.files.downloads_dir,
+                                        frame=search._frame_activo())
                 return len(downloader.download_all(resultados))
             return 0
 

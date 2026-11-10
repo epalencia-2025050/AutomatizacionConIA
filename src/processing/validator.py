@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 UUID_RE = re.compile(r"^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$")
 
 TIPOS_DTE_VALIDOS = {"FACT", "FCAM", "FESP", "NCRE", "NDEB", "NABN", "RDON",
-                     "RECI", "FAAU", "FCAP", "FPEQ", "FDON"}
+                     "RECI", "FAAU", "FCAP", "FPEQ", "FDON", "CIVA"}
 
 
 class Validator:
@@ -28,7 +28,8 @@ class Validator:
         validación regresará False sólo por checksum (el processor decide).
         """
         nit = (nit or "").strip().upper().replace("-", "")
-        if len(nit) < 7:
+        # En Guatemala existen NITs históricos cortos (ej. de 2 a 6 dígitos + verificador)
+        if len(nit) < 2:
             return False
         cuerpo, verificador = nit[:-1], nit[-1]
         esperado = 10 if verificador == "K" else \

@@ -33,6 +33,15 @@ class FileManager:
     def move_to_errors(self, file: Path) -> Path:
         return self._move(file, self.errors_dir)
 
+    def _move(self, file: Path, destino_dir: Path) -> Path:
+        destino_dir.mkdir(parents=True, exist_ok=True)
+        destino = destino_dir / file.name
+        # Si ya existe en destino, reemplazar de forma segura
+        if destino.exists():
+            destino.unlink()
+        shutil.move(str(file), str(destino))
+        return destino
+
     def archive_downloads(self) -> dict[str, int]:
         """Al finalizar: mover XML/PDF válidos a processed; vacíos a errors.
         Mantiene los pares: si el XML es válido, su PDF hermano va con él."""
